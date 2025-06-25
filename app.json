@@ -24,6 +24,18 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "fallbackToCacheTimeout": 0,
+      "url": null
+    },
+    "runtimeVersion": {
+      "policy": "nativeVersion"
+    },
+    "plugins": [
+      "expo-notifications"
+    ]
   }
 }
