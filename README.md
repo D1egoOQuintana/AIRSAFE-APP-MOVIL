@@ -176,8 +176,6 @@ Verifica que:
 2. El broker MQTT soporte WebSockets (puerto 8884 típicamente)
 3. Las credenciales sean correctas
 
-### Simulador no funciona
-El simulador está en `useSimulator: true` por defecto. Verifica que no haya errores en la consola.
 
 ---
 
