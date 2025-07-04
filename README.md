@@ -142,22 +142,6 @@ useMQTT({
 });
 ```
 
-## 📊 Datos del Simulador
-
-El simulador genera datos realistas:
-- **Patrones diurnos:** Mayor contaminación en horas pico (6-9 AM, 6-9 PM)
-- **Valores aleatorios:** PM1, PM2.5, PM10 con rangos creíbles
-- **Datos adicionales:** Temperatura, humedad, presión
-- **Intervalos:** Cada 5 segundos (configurable)
-
-## 🚀 Próximos Pasos
-
-1. **Conectar hardware real:** Reemplazar simulador por MQTT
-2. **Implementar gráficos:** Victory Native para historial
-3. **Notificaciones push:** Expo Notifications
-4. **Offline storage:** Persistencia con Redux Persist
-5. **Testing:** Jest y React Native Testing Library
-
 ## 📝 Notas de Desarrollo
 
 - Todos los placeholders están marcados con `PLACEHOLDER_` para fácil identificación
