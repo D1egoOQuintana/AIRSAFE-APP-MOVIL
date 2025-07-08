@@ -1,7 +1,7 @@
-// src/screens/settings/SettingsScreenPro.tsx
-// Pantalla de configuración y ajustes
+// src/screens/settings/SettingsScreenClean.tsx
+// Pantalla de configuración simplificada con perfil de usuario
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,286 +10,278 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  TextInput,
+  SafeAreaView,
+  StatusBar,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const { width } = Dimensions.get('window');
 
 export default function SettingsScreenPro() {
   const [settings, setSettings] = useState({
     notifications: true,
-    autoSync: true,
-    dataCollection: true,
-    darkMode: false,
-    locationServices: true,
+    connectionAlerts: true,
+    soundEnabled: true,
   });
 
-  const [userInfo] = useState({
-    name: 'Usuario AirSEF',
-    phone: '+56 9 8765 4321',
-    role: 'Operador',
-    lastLogin: '24/06/2025 14:30',
+  const [userInfo, setUserInfo] = useState({
+    name: '',
+    lastName: '',
+    phone: '',
+    role: 'Usuario',
   });
 
-  const toggleSetting = (key: keyof typeof settings) => {
-    setSettings(prev => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+  useEffect(() => {
+    loadUserData();
+    loadSettings();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const userData = await AsyncStorage.getItem('@airsafe_user');
+      if (userData) {
+        setUserInfo(JSON.parse(userData));
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
   };
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Cerrar Sesión',
-      '¿Estás seguro que deseas cerrar sesión?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Cerrar Sesión', style: 'destructive', onPress: () => {} },
-      ]
-    );
+  const saveUserData = async () => {
+    try {
+      await AsyncStorage.setItem('@airsafe_user', JSON.stringify(userInfo));
+      Alert.alert('✅ Éxito', 'Perfil actualizado correctamente');
+      setIsEditingProfile(false);
+    } catch (error) {
+      console.error('Error saving user data:', error);
+      Alert.alert('❌ Error', 'No se pudo guardar el perfil');
+    }
+  };
+
+  const loadSettings = async () => {
+    try {
+      const settingsData = await AsyncStorage.getItem('@airsafe_settings');
+      if (settingsData) {
+        setSettings(JSON.parse(settingsData));
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  };
+
+  const saveSettings = async (newSettings: typeof settings) => {
+    try {
+      await AsyncStorage.setItem('@airsafe_settings', JSON.stringify(newSettings));
+      setSettings(newSettings);
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    }
+  };
+
+  const toggleSetting = (key: keyof typeof settings) => {
+    const newSettings = {
+      ...settings,
+      [key]: !settings[key],
+    };
+    saveSettings(newSettings);
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Header */}
-      <LinearGradient
-        colors={['#9B59B6', '#8E44AD']}
-        style={styles.header}
-      >
-        <Text style={styles.headerTitle}>Configuración</Text>
-        <Text style={styles.headerSubtitle}>
-          Personaliza tu experiencia AirSEF
-        </Text>
-      </LinearGradient>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      
+      <ScrollView style={styles.scrollView}>
+        {/* Header */}
+        <LinearGradient
+          colors={['#3498DB', '#2980B9']}
+          style={styles.header}
+        >
+          <Text style={styles.headerTitle}>Configuración</Text>
+          <Text style={styles.headerSubtitle}>
+            Perfil de usuario y configuraciones
+          </Text>
+        </LinearGradient>
 
-      {/* User Profile */}
-      <View style={styles.profileContainer}>
-        <View style={styles.profileCard}>
-          <View style={styles.profileAvatar}>
-            <Ionicons name="person" size={40} color="#FFFFFF" />
-          </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{userInfo.name}</Text>
-            <Text style={styles.profilePhone}>{userInfo.phone}</Text>
-            <View style={styles.profileMeta}>
-              <View style={styles.roleBadge}>
-                <Text style={styles.roleText}>{userInfo.role}</Text>
+        {/* Perfil de Usuario */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Perfil de Usuario</Text>
+          
+          <View style={styles.profileCard}>
+            <View style={styles.profileHeader}>
+              <View style={styles.avatarContainer}>
+                <Ionicons name="person" size={32} color="#3498DB" />
               </View>
-              <Text style={styles.lastLogin}>Último acceso: {userInfo.lastLogin}</Text>
+              <View style={styles.profileInfo}>
+                <Text style={styles.profileName}>
+                  {userInfo.name || 'Sin nombre'} {userInfo.lastName || ''}
+                </Text>
+                <Text style={styles.profileRole}>{userInfo.role}</Text>
+                <Text style={styles.profilePhone}>{userInfo.phone || 'Sin teléfono'}</Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.editButton}
+                onPress={() => setIsEditingProfile(!isEditingProfile)}
+              >
+                <Ionicons 
+                  name={isEditingProfile ? "checkmark" : "pencil"} 
+                  size={20} 
+                  color="#3498DB" 
+                />
+              </TouchableOpacity>
             </View>
-          </View>
-          <TouchableOpacity style={styles.editProfile}>
-            <Ionicons name="pencil" size={20} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      {/* App Settings */}
-      <View style={styles.settingsContainer}>
-        <Text style={styles.sectionTitle}>Configuración de la App</Text>
-        
-        <View style={styles.settingsCard}>
-          <SettingItem
-            title="Notificaciones"
-            description="Recibir alertas y actualizaciones"
-            icon="notifications"
-            value={settings.notifications}
-            onToggle={() => toggleSetting('notifications')}
-            hasSwitch={true}
-          />
-          <SettingItem
-            title="Sincronización Automática"
-            description="Actualizar datos automáticamente"
-            icon="sync"
-            value={settings.autoSync}
-            onToggle={() => toggleSetting('autoSync')}
-            hasSwitch={true}
-          />
-          <SettingItem
-            title="Recopilación de Datos"
-            description="Ayudar a mejorar la aplicación"
-            icon="analytics"
-            value={settings.dataCollection}
-            onToggle={() => toggleSetting('dataCollection')}
-            hasSwitch={true}
-          />
-          <SettingItem
-            title="Servicios de Ubicación"
-            description="Usar GPS para datos locales"
-            icon="location"
-            value={settings.locationServices}
-            onToggle={() => toggleSetting('locationServices')}
-            hasSwitch={true}
-          />
-        </View>
-      </View>
+            {isEditingProfile && (
+              <View style={styles.editForm}>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Nombre</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={userInfo.name}
+                    onChangeText={(text) => setUserInfo(prev => ({ ...prev, name: text }))}
+                    placeholder="Ingresa tu nombre"
+                  />
+                </View>
+                
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Apellidos</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={userInfo.lastName}
+                    onChangeText={(text) => setUserInfo(prev => ({ ...prev, lastName: text }))}
+                    placeholder="Ingresa tus apellidos"
+                  />
+                </View>
+                
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Teléfono</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={userInfo.phone}
+                    onChangeText={(text) => setUserInfo(prev => ({ ...prev, phone: text }))}
+                    placeholder="+56 9 1234 5678"
+                    keyboardType="phone-pad"
+                  />
+                </View>
 
-      {/* General Settings */}
-      <View style={styles.settingsContainer}>
-        <Text style={styles.sectionTitle}>General</Text>
-        
-        <View style={styles.settingsCard}>
-          <SettingItem
-            title="Unidades de Medida"
-            description="μg/m³, ppm, AQI"
-            icon="calculator"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-          <SettingItem
-            title="Idioma"
-            description="Español (Chile)"
-            icon="language"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-          <SettingItem
-            title="Zona Horaria"
-            description="Chile Continental (UTC-3)"
-            icon="time"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-          <SettingItem
-            title="Formato de Fecha"
-            description="DD/MM/YYYY"
-            icon="calendar"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-        </View>
-      </View>
-
-      {/* Data & Privacy */}
-      <View style={styles.settingsContainer}>
-        <Text style={styles.sectionTitle}>Datos y Privacidad</Text>
-        
-        <View style={styles.settingsCard}>
-          <SettingItem
-            title="Exportar Datos"
-            description="Descargar todos tus datos"
-            icon="download"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-          <SettingItem
-            title="Limpiar Caché"
-            description="Liberar espacio de almacenamiento"
-            icon="trash"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-          <SettingItem
-            title="Política de Privacidad"
-            description="Ver términos y condiciones"
-            icon="document-text"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-        </View>
-      </View>
-
-      {/* Support */}
-      <View style={styles.settingsContainer}>
-        <Text style={styles.sectionTitle}>Soporte</Text>
-        
-        <View style={styles.settingsCard}>
-          <SettingItem
-            title="Centro de Ayuda"
-            description="Preguntas frecuentes y guías"
-            icon="help-circle"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-          <SettingItem
-            title="Contactar Soporte"
-            description="Enviar mensaje al equipo técnico"
-            icon="mail"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-          <SettingItem
-            title="Reportar Problema"
-            description="Informar errores o sugerencias"
-            icon="bug"
-            onPress={() => {}}
-            hasSwitch={false}
-          />
-        </View>
-      </View>
-
-      {/* App Info */}
-      <View style={styles.appInfoContainer}>
-        <Text style={styles.sectionTitle}>Información de la App</Text>
-        
-        <View style={styles.appInfoCard}>
-          <View style={styles.appInfoRow}>
-            <Text style={styles.appInfoLabel}>Versión</Text>
-            <Text style={styles.appInfoValue}>1.0.0</Text>
-          </View>
-          <View style={styles.appInfoRow}>
-            <Text style={styles.appInfoLabel}>Build</Text>
-            <Text style={styles.appInfoValue}>2025.06.001</Text>
-          </View>
-          <View style={styles.appInfoRow}>
-            <Text style={styles.appInfoLabel}>Última Actualización</Text>
-            <Text style={styles.appInfoValue}>24/06/2025</Text>
+                <TouchableOpacity style={styles.saveButton} onPress={saveUserData}>
+                  <Text style={styles.saveButtonText}>Guardar Cambios</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </View>
-      </View>
 
-      {/* Logout Button */}
-      <View style={styles.logoutContainer}>
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <LinearGradient
-            colors={['#E74C3C', '#C0392B']}
-            style={styles.logoutGradient}
-          >
-            <Ionicons name="log-out" size={20} color="#FFFFFF" />
-            <Text style={styles.logoutText}>Cerrar Sesión</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+        {/* Configuraciones */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Configuraciones</Text>
+          
+          <View style={styles.settingsCard}>
+            <SettingItem
+              icon="notifications"
+              title="Notificaciones"
+              description="Alertas de calidad del aire"
+              value={settings.notifications}
+              onToggle={() => toggleSetting('notifications')}
+            />
+            
+            <SettingItem
+              icon="wifi"
+              title="Alertas de Conexión"
+              description="Notificar cuando se pierde conexión MQTT"
+              value={settings.connectionAlerts}
+              onToggle={() => toggleSetting('connectionAlerts')}
+            />
+            
+            <SettingItem
+              icon="volume-high"
+              title="Sonido"
+              description="Reproducir sonido en notificaciones"
+              value={settings.soundEnabled}
+              onToggle={() => toggleSetting('soundEnabled')}
+            />
+          </View>
+        </View>
 
-      <View style={styles.bottomSpacing} />
-    </ScrollView>
+        {/* Información de la App */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Información</Text>
+          
+          <View style={styles.infoCard}>
+            <InfoItem
+              icon="information-circle"
+              title="Versión"
+              value="1.0.0"
+            />
+            
+            <InfoItem
+              icon="server"
+              title="Broker MQTT"
+              value="broker.emqx.io"
+            />
+            
+            <InfoItem
+              icon="calendar"
+              title="Última actualización"
+              value={new Date().toLocaleDateString()}
+            />
+          </View>
+        </View>
+
+        <View style={styles.bottomSpacing} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
-function SettingItem({ title, description, icon, value, onToggle, onPress, hasSwitch }: {
+// Componente para elementos de configuración
+function SettingItem({ icon, title, description, value, onToggle }: {
+  icon: string;
   title: string;
   description: string;
-  icon: string;
-  value?: boolean;
-  onToggle?: () => void;
-  onPress?: () => void;
-  hasSwitch: boolean;
+  value: boolean;
+  onToggle: () => void;
 }) {
   return (
-    <TouchableOpacity 
-      style={styles.settingItem} 
-      onPress={onPress}
-      disabled={hasSwitch}
-    >
-      <View style={styles.settingContent}>
-        <View style={styles.settingIcon}>
-          <Ionicons name={icon as any} size={20} color="#9B59B6" />
-        </View>
-        <View style={styles.settingText}>
-          <Text style={styles.settingTitle}>{title}</Text>
-          <Text style={styles.settingDescription}>{description}</Text>
-        </View>
+    <View style={styles.settingItem}>
+      <View style={styles.settingIcon}>
+        <Ionicons name={icon as any} size={20} color="#3498DB" />
       </View>
-      {hasSwitch ? (
-        <Switch
-          value={value}
-          onValueChange={onToggle}
-          trackColor={{ false: '#E5E7EB', true: '#D8B4FE' }}
-          thumbColor={value ? '#9B59B6' : '#F3F4F6'}
-        />
-      ) : (
-        <Ionicons name="chevron-forward" size={16} color="#6B7280" />
-      )}
-    </TouchableOpacity>
+      <View style={styles.settingContent}>
+        <Text style={styles.settingTitle}>{title}</Text>
+        <Text style={styles.settingDescription}>{description}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onToggle}
+        trackColor={{ false: '#E5E7EB', true: '#3498DB' }}
+        thumbColor={value ? '#FFFFFF' : '#FFFFFF'}
+      />
+    </View>
+  );
+}
+
+// Componente para información
+function InfoItem({ icon, title, value }: {
+  icon: string;
+  title: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.infoItem}>
+      <View style={styles.infoIcon}>
+        <Ionicons name={icon as any} size={20} color="#6B7280" />
+      </View>
+      <View style={styles.infoContent}>
+        <Text style={styles.infoTitle}>{title}</Text>
+        <Text style={styles.infoValue}>{value}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -298,45 +290,58 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
+  scrollView: {
+    flex: 1,
+  },
   header: {
-    paddingTop: 50,
+    paddingTop: 20,
     paddingBottom: 30,
     paddingHorizontal: 20,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: '#FFFFFF',
+    opacity: 0.9,
   },
-  profileContainer: {
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 12,
     marginHorizontal: 20,
-    marginTop: -20,
   },
   profileCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    marginHorizontal: 20,
+    borderRadius: 16,
     padding: 20,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
   },
-  profileAvatar: {
+  avatarContainer: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#9B59B6',
+    backgroundColor: '#E3F2FD',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
+    marginRight: 16,
   },
   profileInfo: {
     flex: 1,
@@ -347,49 +352,59 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 4,
   },
+  profileRole: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 2,
+  },
   profilePhone: {
     fontSize: 14,
     color: '#6B7280',
-    marginBottom: 8,
   },
-  profileMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  roleBadge: {
-    backgroundColor: '#EBF8FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 10,
-  },
-  roleText: {
-    fontSize: 12,
-    color: '#3498DB',
-    fontWeight: '600',
-  },
-  lastLogin: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  editProfile: {
+  editButton: {
     padding: 8,
   },
-  settingsContainer: {
-    marginTop: 30,
-    paddingHorizontal: 20,
+  editForm: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
     color: '#1F2937',
-    marginBottom: 15,
+    backgroundColor: '#FFFFFF',
+  },
+  saveButton: {
+    backgroundColor: '#3498DB',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   settingsCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    marginBottom: 10,
+    marginHorizontal: 20,
+    borderRadius: 16,
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -399,90 +414,74 @@ const styles = StyleSheet.create({
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 20,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
-  },
-  settingContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
   },
   settingIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3E8FF',
+    backgroundColor: '#E3F2FD',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
+    marginRight: 12,
   },
-  settingText: {
+  settingContent: {
     flex: 1,
   },
   settingTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   settingDescription: {
     fontSize: 14,
     color: '#6B7280',
   },
-  appInfoContainer: {
-    marginTop: 20,
-    paddingHorizontal: 20,
-  },
-  appInfoCard: {
+  infoCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    padding: 20,
+    marginHorizontal: 20,
+    borderRadius: 16,
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  appInfoRow: {
+  infoItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  appInfoLabel: {
-    fontSize: 14,
-    color: '#6B7280',
+  infoIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
-  appInfoValue: {
-    fontSize: 14,
-    fontWeight: '600',
+  infoContent: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  infoTitle: {
+    fontSize: 16,
     color: '#1F2937',
   },
-  logoutContainer: {
-    marginTop: 30,
-    paddingHorizontal: 20,
-  },
-  logoutButton: {
-    borderRadius: 15,
-    overflow: 'hidden',
-  },
-  logoutGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 15,
-  },
-  logoutText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 10,
+  infoValue: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   bottomSpacing: {
-    height: 30,
+    height: 40,
   },
 });

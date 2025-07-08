@@ -1,506 +1,802 @@
 // src/screens/dashboard/DashboardScreenPro.tsx
-// Dashboard profesional con simulación de datos en tiempo real
+// Dashboard principal con datos MQTT en tiempo real
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  RefreshControl,
-  Dimensions,
   TouchableOpacity,
+  RefreshControl,
+  Alert,
+  Dimensions,
+  StatusBar,
+  SafeAreaView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { LineChart } from 'react-native-chart-kit';
+import SensorCard from '../../components/SensorCard';
+import mqttManager from '../../services/MqttManager';
+import alertService from '../../services/alertService';
+import notificationService from '../../services/notificationService';
+import {
+  calculateOverallAirQuality,
+  calculatePM25Quality,
+  calculatePM10Quality,
+  getTemperatureColor,
+  getHumidityColor,
+  getWifiSignalColor,
+  getAirQualityRecommendations,
+  formatSensorValue,
+} from '../../utils/airQuality';
 
 const { width } = Dimensions.get('window');
 
-interface AirQualityData {
-  pm25: number;
-  pm10: number;
-  pm1: number;
-  temperature: number;
-  humidity: number;
-  aqi: number;
-  status: 'good' | 'moderate' | 'unhealthy' | 'dangerous';
-  location: string;
-  lastUpdate: string;
-}
-
-export default function DashboardScreenPro() {  const [data, setData] = useState<AirQualityData>({
-    pm25: 15,
-    pm10: 25,
-    pm1: 8,
-    temperature: 22,
-    humidity: 65,
-    aqi: 42,
-    status: 'good',
-    location: 'Centro de Lima',
-    lastUpdate: new Date().toLocaleTimeString(),
+export default function DashboardScreenPro() {
+  const [sensorData, setSensorData] = useState<any>({
+    pm25: null,
+    pm10: null,
+    temperature: null,
+    humidity: null,
+    wifi_signal: null,
+    air_quality: null,
+    status: null,
+    lastUpdate: null,
   });
   
-  const [refreshing, setRefreshing] = useState(false);
-  
-  const [userInfo] = useState({
-    name: 'Usuario AirSafe',
-    phone: '+51 987 654 321',
-    role: 'Operador',
-    lastLogin: '24/06/2025 14:30',
+  const [connectionStatus, setConnectionStatus] = useState({
+    isConnected: false,
+    connectionAttempts: 0,
+    maxReconnectAttempts: 5,
   });
+  
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [chartData, setChartData] = useState<{
+    pm25: number[];
+    pm10: number[];
+    temperature: number[];
+    timestamps: string[];
+  }>({
+    pm25: [],
+    pm10: [],
+    temperature: [],
+    timestamps: [],
+  });
+  
+  const previousDataRef = useRef<any>(null);
+  const chartUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Simulador de datos en tiempo real
   useEffect(() => {
-    const interval = setInterval(() => {
-      const newPM25 = Math.round(Math.random() * 50 + 10);
-      const newPM10 = Math.round(Math.random() * 80 + 20);
-      const newPM1 = Math.round(Math.random() * 30 + 5);
-      const newTemp = Math.round((Math.random() * 15 + 15) * 10) / 10;
-      const newHumidity = Math.round(Math.random() * 40 + 40);
-      
-      let status: 'good' | 'moderate' | 'unhealthy' | 'dangerous' = 'good';
-      let aqi = newPM25 * 2;
-      
-      if (aqi > 100) status = 'dangerous';
-      else if (aqi > 75) status = 'unhealthy';
-      else if (aqi > 50) status = 'moderate';
-
-      setData({
-        pm25: newPM25,
-        pm10: newPM10,
-        pm1: newPM1,
-        temperature: newTemp,        humidity: newHumidity,
-        aqi,
-        status,
-        location: 'Centro de Lima',
-        lastUpdate: new Date().toLocaleTimeString(),
-      });
-    }, 3000);
-
-    return () => clearInterval(interval);
+    initializeMQTT();
+    setupNotificationListeners();
+    
+    return () => {
+      cleanupMQTT();
+      if (chartUpdateIntervalRef.current) {
+        clearInterval(chartUpdateIntervalRef.current);
+      }
+    };
   }, []);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  };
-  const getStatusColor = (status: string): [string, string] => {
-    switch (status) {
-      case 'good': return ['#10B981', '#059669'];
-      case 'moderate': return ['#F59E0B', '#D97706'];
-      case 'unhealthy': return ['#EF4444', '#DC2626'];
-      case 'dangerous': return ['#7C2D12', '#991B1B'];
-      default: return ['#6B7280', '#4B5563'];
+  const initializeMQTT = async () => {
+    try {
+      console.log('🔄 Inicializando MQTT...');
+      
+      // Conectar servicio de alertas con MQTT Manager
+      mqttManager.setAlertService(alertService);
+      
+      // Cargar datos previos
+      await mqttManager.loadDataFromStorage();
+      
+      // Configurar listeners
+      mqttManager.on('connected', handleMQTTConnected);
+      mqttManager.on('disconnected', handleMQTTDisconnected);
+      mqttManager.on('connectionFailed', handleMQTTConnectionFailed);
+      mqttManager.on('connectionLost', handleMQTTConnectionLost);
+      mqttManager.on('dataUpdate', handleDataUpdate);
+      mqttManager.on('dataLoaded', handleDataLoaded);
+      mqttManager.on('error', handleMQTTError);
+      
+      // Conectar
+      await mqttManager.connect();
+      
+      // Configurar actualización de gráficos
+      chartUpdateIntervalRef.current = setInterval(updateChartData, 30000); // Cada 30 segundos
+      
+    } catch (error) {
+      console.error('❌ Error inicializando MQTT:', error);
+      Alert.alert('Error', 'No se pudo conectar a los sensores');
     }
   };
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'good': return 'Buena';
-      case 'moderate': return 'Moderada';
-      case 'unhealthy': return 'Dañina';
-      case 'dangerous': return 'Peligrosa';
-      default: return 'Sin datos';
+  const cleanupMQTT = () => {
+    mqttManager.removeAllListeners();
+    mqttManager.disconnect();
+  };
+
+  const setupNotificationListeners = () => {
+    // Configurar listeners para notificaciones
+    notificationService.addNotificationListener((notification: any) => {
+      console.log('📱 Notificación recibida:', notification);
+    });
+
+    notificationService.addNotificationResponseListener((response: any) => {
+      console.log('👆 Notificación tocada:', response);
+    });
+  };
+
+  const handleMQTTConnected = () => {
+    console.log('✅ MQTT conectado');
+    setConnectionStatus({
+      isConnected: true,
+      connectionAttempts: 0,
+      maxReconnectAttempts: 5,
+    });
+    notificationService.sendConnectionAlert(true);
+  };
+
+  const handleMQTTDisconnected = () => {
+    console.log('⚠️ MQTT desconectado');
+    setConnectionStatus(prev => ({ ...prev, isConnected: false }));
+  };
+
+  const handleMQTTConnectionFailed = (error: any) => {
+    console.error('❌ Error de conexión MQTT:', error);
+    const status = mqttManager.getConnectionStatus();
+    setConnectionStatus(status);
+    
+    if (status.connectionAttempts >= status.maxReconnectAttempts) {
+      Alert.alert(
+        'Error de Conexión',
+        'No se pudo conectar a los sensores. Verifica tu conexión a internet.',
+        [
+          { text: 'Reintentar', onPress: handleManualReconnect },
+          { text: 'Cancelar', style: 'cancel' },
+        ]
+      );
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'good': return 'checkmark-circle';
-      case 'moderate': return 'warning';
-      case 'unhealthy': return 'alert-circle';
-      case 'dangerous': return 'skull';
-      default: return 'help-circle';
+  const handleMQTTConnectionLost = (error: any) => {
+    console.warn('⚠️ Conexión MQTT perdida:', error);
+    setConnectionStatus(prev => ({ ...prev, isConnected: false }));
+    notificationService.sendConnectionAlert(false);
+  };
+
+  const handleDataUpdate = ({ sensorData: newData }: { sensorData: any }) => {
+    console.log('📊 Datos actualizados:', newData);
+    
+    // Verificar alertas
+    if (previousDataRef.current) {
+      notificationService.checkAndSendAirQualityAlert(
+        newData,
+        previousDataRef.current
+      );
     }
+    
+    // Actualizar datos
+    previousDataRef.current = sensorData;
+    setSensorData(newData);
+    
+    // Actualizar gráficos
+    updateChartData(newData);
+  };
+
+  const handleDataLoaded = (data: any) => {
+    console.log('📂 Datos cargados desde storage:', data);
+    setSensorData(data);
+  };
+
+  const handleMQTTError = (error: any) => {
+    console.error('❌ Error MQTT:', error);
+    Alert.alert('Error', 'Error en la conexión con los sensores');
+  };
+
+  const updateChartData = (newData = sensorData) => {
+    const now = new Date();
+    const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    setChartData(prev => {
+      const maxDataPoints = 12; // Últimas 6 horas (cada 30 min)
+      
+      const newChartData = {
+        pm25: [...prev.pm25, parseFloat(newData.pm25 || '0') || 0].slice(-maxDataPoints),
+        pm10: [...prev.pm10, parseFloat(newData.pm10 || '0') || 0].slice(-maxDataPoints),
+        temperature: [...prev.temperature, parseFloat(newData.temperature || '0') || 0].slice(-maxDataPoints),
+        timestamps: [...prev.timestamps, timeLabel].slice(-maxDataPoints),
+      };
+      
+      return newChartData;
+    });
+  };
+
+  const handleSensorCardPress = (sensorType: string) => {
+    Alert.alert(
+      `Sensor ${sensorType}`,
+      `Ver detalles del sensor ${sensorType}`,
+      [
+        { text: 'Ver Historial', onPress: () => console.log(`Historial ${sensorType}`) },
+        { text: 'Configurar', onPress: () => console.log(`Configurar ${sensorType}`) },
+        { text: 'Cerrar', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleManualReconnect = async () => {
+    try {
+      setIsRefreshing(true);
+      await mqttManager.reconnect();
+    } catch (error) {
+      console.error('❌ Error en reconexión manual:', error);
+      Alert.alert('Error', 'No se pudo reconectar');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await handleManualReconnect();
+  };
+
+  const renderConnectionStatus = () => {
+    const { isConnected, connectionAttempts, maxReconnectAttempts } = connectionStatus;
+    
+    return (
+      <View style={styles.connectionStatus}>
+        <View style={styles.statusContainer}>
+          <View style={[styles.statusDot, { backgroundColor: isConnected ? '#22C55E' : '#EF4444' }]} />
+          <Text style={styles.statusText}>
+            {isConnected ? 'Conectado' : 'Desconectado'}
+          </Text>
+          {!isConnected && connectionAttempts > 0 && (
+            <Text style={styles.attemptsText}>
+              ({connectionAttempts}/{maxReconnectAttempts})
+            </Text>
+          )}
+        </View>
+        
+        {!isConnected && (
+          <TouchableOpacity style={styles.reconnectButton} onPress={handleManualReconnect}>
+            <Ionicons name="refresh" size={16} color="#FFFFFF" />
+            <Text style={styles.reconnectButtonText}>Reconectar</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  const renderMainAirQualityCard = () => {
+    const overallQuality = calculateOverallAirQuality(sensorData.pm25, sensorData.pm10);
+    
+    if (!overallQuality) {
+      return (
+        <View style={styles.mainCard}>
+          <Text style={styles.mainCardTitle}>Calidad del Aire</Text>
+          <Text style={styles.noDataText}>Sin datos disponibles</Text>
+        </View>
+      );
+    }
+    
+    return (
+      <LinearGradient
+        colors={[overallQuality.bgColor, overallQuality.bgColor + '80']}
+        style={styles.mainCard}
+      >
+        <View style={styles.mainCardHeader}>
+          <Text style={styles.mainCardTitle}>Calidad del Aire</Text>
+          <Text style={styles.mainCardIcon}>{overallQuality.icon}</Text>
+        </View>
+        
+        <View style={styles.mainCardContent}>
+          <Text style={[styles.mainCardLabel, { color: overallQuality.color }]}>
+            {overallQuality.label}
+          </Text>
+          <Text style={styles.mainCardDescription}>
+            {overallQuality.description}
+          </Text>
+        </View>
+        
+        <View style={styles.mainCardValues}>
+          <View style={styles.valueItem}>
+            <Text style={styles.valueLabel}>PM2.5</Text>
+            <Text style={[styles.valueText, { color: overallQuality.color }]}>
+              {formatSensorValue(sensorData.pm25, 'μg/m³')}
+            </Text>
+          </View>
+          <View style={styles.valueItem}>
+            <Text style={styles.valueLabel}>PM10</Text>
+            <Text style={[styles.valueText, { color: overallQuality.color }]}>
+              {formatSensorValue(sensorData.pm10, 'μg/m³')}
+            </Text>
+          </View>
+        </View>
+      </LinearGradient>
+    );
+  };
+
+  const renderSensorCards = () => {
+    const pm25Quality = calculatePM25Quality(sensorData.pm25);
+    const pm10Quality = calculatePM10Quality(sensorData.pm10);
+    
+    return (
+      <View style={styles.sensorGrid}>
+        <SensorCard
+          title="PM2.5"
+          value={sensorData.pm25}
+          unit="μg/m³"
+          icon="💨"
+          color={pm25Quality?.color || '#6B7280'}
+          bgColor={pm25Quality?.bgColor || '#F3F4F6'}
+          description={pm25Quality?.description || 'Sin datos'}
+          isConnected={connectionStatus.isConnected}
+          lastUpdate={sensorData.lastUpdate}
+          onPress={() => handleSensorCardPress('PM2.5')}
+        />
+        
+        <SensorCard
+          title="PM10"
+          value={sensorData.pm10}
+          unit="μg/m³"
+          icon="🌫️"
+          color={pm10Quality?.color || '#6B7280'}
+          bgColor={pm10Quality?.bgColor || '#F3F4F6'}
+          description={pm10Quality?.description || 'Sin datos'}
+          isConnected={connectionStatus.isConnected}
+          lastUpdate={sensorData.lastUpdate}
+          onPress={() => handleSensorCardPress('PM10')}
+        />
+        
+        <SensorCard
+          title="Temperatura"
+          value={sensorData.temperature}
+          unit="°C"
+          icon="🌡️"
+          color={getTemperatureColor(sensorData.temperature)}
+          bgColor={getTemperatureColor(sensorData.temperature) + '20'}
+          description="Temperatura ambiente"
+          isConnected={connectionStatus.isConnected}
+          lastUpdate={sensorData.lastUpdate}
+          onPress={() => handleSensorCardPress('Temperatura')}
+        />
+        
+        <SensorCard
+          title="Humedad"
+          value={sensorData.humidity}
+          unit="%"
+          icon="💧"
+          color={getHumidityColor(sensorData.humidity)}
+          bgColor={getHumidityColor(sensorData.humidity) + '20'}
+          description="Humedad relativa"
+          isConnected={connectionStatus.isConnected}
+          lastUpdate={sensorData.lastUpdate}
+          onPress={() => handleSensorCardPress('Humedad')}
+        />
+        
+        <SensorCard
+          title="Señal WiFi"
+          value={sensorData.wifi_signal}
+          unit="dBm"
+          icon="📶"
+          color={getWifiSignalColor(sensorData.wifi_signal)}
+          bgColor={getWifiSignalColor(sensorData.wifi_signal) + '20'}
+          description="Intensidad de señal"
+          isConnected={connectionStatus.isConnected}
+          lastUpdate={sensorData.lastUpdate}
+          onPress={() => handleSensorCardPress('WiFi')}
+        />
+        
+        <SensorCard
+          title="Estado"
+          value={sensorData.status || 'Desconocido'}
+          unit=""
+          icon="⚡"
+          color={sensorData.status === 'online' ? '#22C55E' : '#EF4444'}
+          bgColor={sensorData.status === 'online' ? '#22C55E20' : '#EF444420'}
+          description="Estado del sensor"
+          isConnected={connectionStatus.isConnected}
+          lastUpdate={sensorData.lastUpdate}
+          onPress={() => handleSensorCardPress('Estado')}
+        />
+      </View>
+    );
+  };
+
+  const renderChart = () => {
+    if (chartData.timestamps.length < 2) {
+      return (
+        <View style={styles.chartContainer}>
+          <Text style={styles.chartTitle}>Tendencia (últimas 6 horas)</Text>
+          <View style={styles.noChartData}>
+            <Text style={styles.noDataText}>Recopilando datos...</Text>
+          </View>
+        </View>
+      );
+    }
+    
+    return (
+      <View style={styles.chartContainer}>
+        <Text style={styles.chartTitle}>Tendencia PM2.5 (últimas 6 horas)</Text>
+        <LineChart
+          data={{
+            labels: chartData.timestamps,
+            datasets: [
+              {
+                data: chartData.pm25,
+                color: (opacity = 1) => `rgba(34, 197, 94, ${opacity})`,
+                strokeWidth: 2,
+              },
+            ],
+          }}
+          width={width - 32}
+          height={180}
+          yAxisSuffix="μg/m³"
+          chartConfig={{
+            backgroundColor: '#FFFFFF',
+            backgroundGradientFrom: '#FFFFFF',
+            backgroundGradientTo: '#FFFFFF',
+            decimalPlaces: 1,
+            color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+            labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+            style: {
+              borderRadius: 16,
+            },
+            propsForDots: {
+              r: '4',
+              strokeWidth: '2',
+              stroke: '#22C55E',
+            },
+          }}
+          bezier
+          style={styles.chart}
+        />
+      </View>
+    );
+  };
+
+  const renderRecommendations = () => {
+    const recommendations = getAirQualityRecommendations(sensorData.pm25, sensorData.pm10);
+    
+    if (recommendations.length === 0) return null;
+    
+    return (
+      <View style={styles.recommendationsContainer}>
+        <Text style={styles.recommendationsTitle}>Recomendaciones</Text>
+        {recommendations.map((recommendation, index) => (
+          <View key={index} style={styles.recommendationItem}>
+            <Text style={styles.recommendationText}>{recommendation}</Text>
+          </View>
+        ))}
+      </View>
+    );
   };
 
   return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >      {/* Header */}
-      <LinearGradient
-        colors={['#1ABC9C', '#16A085']}
-        style={styles.header}
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={['#1ABC9C']}
+            tintColor="#1ABC9C"
+          />
+        }
       >
-        <View style={styles.headerContent}>
+        {/* Header */}
+        <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>¡Hola, {userInfo.name}!</Text>
-            <Text style={styles.location}>📍 {data.location}</Text>
+            <Text style={styles.headerTitle}>AirSafe Dashboard</Text>
+            <Text style={styles.headerSubtitle}>Centro de Lima • Datos en tiempo real</Text>
           </View>
-          <TouchableOpacity style={styles.profileButton}>
-            <Ionicons name="person-circle" size={40} color="#FFFFFF" />
+          <TouchableOpacity style={styles.settingsButton}>
+            <Ionicons name="settings" size={24} color="#6B7280" />
           </TouchableOpacity>
         </View>
         
-        <Text style={styles.lastUpdate}>
-          Última actualización: {data.lastUpdate}
-        </Text>
-      </LinearGradient>
-
-      {/* Status Principal */}
-      <View style={styles.mainStatusCard}>
-        <LinearGradient
-          colors={getStatusColor(data.status)}
-          style={styles.statusGradient}
-        >
-          <View style={styles.statusContent}>
-            <Ionicons 
-              name={getStatusIcon(data.status)} 
-              size={50} 
-              color="#FFFFFF" 
-            />
-            <Text style={styles.statusTitle}>Calidad del Aire</Text>
-            <Text style={styles.statusValue}>{getStatusText(data.status)}</Text>
-            <Text style={styles.aqiValue}>AQI: {data.aqi}</Text>
-          </View>
-        </LinearGradient>
-      </View>
-
-      {/* Métricas principales */}
-      <View style={styles.metricsContainer}>
-        <Text style={styles.sectionTitle}>Mediciones en Tiempo Real</Text>
+        {/* Connection Status */}
+        {renderConnectionStatus()}
         
-        <View style={styles.metricsGrid}>
-          <MetricCard
-            title="PM2.5"
-            value={data.pm25}
-            unit="μg/m³"
-            icon="radio-button-on"
-            color="#E74C3C"
-            description="Partículas finas"
-          />
-          <MetricCard
-            title="PM10"
-            value={data.pm10}
-            unit="μg/m³"
-            icon="radio-button-off"
-            color="#F39C12"
-            description="Partículas gruesas"
-          />
-          <MetricCard
-            title="PM1.0"
-            value={data.pm1}
-            unit="μg/m³"
-            icon="ellipse"
-            color="#9B59B6"
-            description="Partículas ultrafinas"
-          />
-          <MetricCard
-            title="Temperatura"
-            value={data.temperature}
-            unit="°C"
-            icon="thermometer"
-            color="#3498DB"
-            description="Ambiente actual"
-          />
+        {/* Debug/Test Section - Solo para desarrollo */}
+        <View style={styles.debugContainer}>
+          <TouchableOpacity 
+            style={styles.testButton}
+            onPress={() => {
+              // Test notification
+              notificationService.sendCustomAlert(
+                '🧪 Prueba de Notificación',
+                'Esta es una notificación de prueba desde la app web',
+                { type: 'test' }
+              );
+            }}
+          >
+            <Ionicons name="flask" size={16} color="#FFFFFF" />
+            <Text style={styles.testButtonText}>Probar Notificación</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.testButton}
+            onPress={() => {
+              // Test MQTT publish
+              mqttManager.publish('d1ego/airsafe/test', JSON.stringify({
+                test: true,
+                timestamp: new Date().toISOString(),
+                message: 'Test desde app web'
+              }));
+              Alert.alert('✅ Test', 'Mensaje de prueba enviado a MQTT');
+            }}
+          >
+            <Ionicons name="send" size={16} color="#FFFFFF" />
+            <Text style={styles.testButtonText}>Test MQTT</Text>
+          </TouchableOpacity>
         </View>
-      </View>
-
-      {/* Información adicional */}
-      <View style={styles.additionalInfo}>
-        <Text style={styles.sectionTitle}>Condiciones Ambientales</Text>
         
-        <View style={styles.environmentCard}>
-          <View style={styles.environmentItem}>
-            <Ionicons name="water" size={24} color="#3498DB" />
-            <Text style={styles.environmentLabel}>Humedad</Text>
-            <Text style={styles.environmentValue}>{data.humidity}%</Text>
-          </View>
-          
-          <View style={styles.environmentDivider} />
-          
-          <View style={styles.environmentItem}>
-            <Ionicons name="eye" size={24} color="#2ECC71" />
-            <Text style={styles.environmentLabel}>Visibilidad</Text>
-            <Text style={styles.environmentValue}>Buena</Text>
-          </View>
-          
-          <View style={styles.environmentDivider} />
-          
-          <View style={styles.environmentItem}>
-            <Ionicons name="leaf" size={24} color="#27AE60" />
-            <Text style={styles.environmentLabel}>Tendencia</Text>
-            <Text style={styles.environmentValue}>Estable</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Acciones rápidas */}
-      <View style={styles.quickActions}>
-        <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
+        {/* Main Air Quality Card */}
+        {renderMainAirQualityCard()}
         
-        <View style={styles.actionsGrid}>
-          <QuickActionButton
-            title="Ver Historial"
-            icon="analytics"
-            color="#3498DB"
-            onPress={() => {}}
-          />
-          <QuickActionButton
-            title="Configurar Alertas"
-            icon="notifications"
-            color="#E74C3C"
-            onPress={() => {}}
-          />
-          <QuickActionButton
-            title="Exportar Datos"
-            icon="download"
-            color="#27AE60"
-            onPress={() => {}}
-          />
-          <QuickActionButton
-            title="Compartir Reporte"
-            icon="share"
-            color="#F39C12"
-            onPress={() => {}}
-          />
-        </View>
-      </View>
-
-      <View style={styles.bottomSpacing} />
-    </ScrollView>
-  );
-}
-
-// Componente para las tarjetas de métricas
-function MetricCard({ title, value, unit, icon, color, description }: {
-  title: string;
-  value: number;
-  unit: string;
-  icon: string;
-  color: string;
-  description: string;
-}) {
-  return (
-    <View style={styles.metricCard}>
-      <View style={[styles.metricIcon, { backgroundColor: color }]}>
-        <Ionicons name={icon as any} size={20} color="#FFFFFF" />
-      </View>
-      <Text style={styles.metricTitle}>{title}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricUnit}>{unit}</Text>
-      <Text style={styles.metricDescription}>{description}</Text>
-    </View>
-  );
-}
-
-// Componente para botones de acción rápida
-function QuickActionButton({ title, icon, color, onPress }: {
-  title: string;
-  icon: string;
-  color: string;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity style={styles.actionButton} onPress={onPress}>
-      <View style={[styles.actionIcon, { backgroundColor: color }]}>
-        <Ionicons name={icon as any} size={24} color="#FFFFFF" />
-      </View>
-      <Text style={styles.actionTitle}>{title}</Text>
-    </TouchableOpacity>
+        {/* Sensor Cards */}
+        {renderSensorCards()}
+        
+        {/* Chart */}
+        {renderChart()}
+        
+        {/* Recommendations */}
+        {renderRecommendations()}
+        
+        {/* Last Update */}
+        {sensorData.lastUpdate && (
+          <View style={styles.lastUpdateContainer}>
+            <Ionicons name="time" size={16} color="#6B7280" />
+            <Text style={styles.lastUpdateText}>
+              Última actualización: {new Date(sensorData.lastUpdate).toLocaleString()}
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F8FAFC',
+  },
+  scrollView: {
+    flex: 1,
   },
   header: {
-    paddingTop: 50,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
-  greeting: {
+  headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 5,
+    color: '#1F2937',
   },
-  location: {
-    fontSize: 16,
-    color: '#E8F5E8',
-    opacity: 0.9,
-  },  profileButton: {
-    padding: 5,
-  },lastUpdate: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
   },
-  mainStatusCard: {
-    margin: 20,
-    borderRadius: 20,
-    overflow: 'hidden',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+  settingsButton: {
+    padding: 8,
   },
-  statusGradient: {
-    padding: 30,
-    alignItems: 'center',
-  },
-  statusContent: {
-    alignItems: 'center',
-  },
-  statusTitle: {
-    fontSize: 18,
-    color: '#FFFFFF',
-    marginTop: 15,
-    marginBottom: 5,
-  },
-  statusValue: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 5,
-  },  aqiValue: {
-    fontSize: 16,
-    color: '#E8F5E8',
-    opacity: 0.9,
-  },
-  metricsContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2C3E50',
-    marginBottom: 15,
-  },  metricsGrid: {
+  connectionStatus: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'space-between',
-  },
-  metricCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    padding: 15,
-    width: (width - 60) / 2,
-    marginBottom: 15,
     alignItems: 'center',
-    elevation: 3,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  attemptsText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginLeft: 4,
+  },
+  reconnectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  reconnectButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  mainCard: {
+    margin: 16,
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 8,
   },
-  metricIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
+  mainCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 16,
   },
-  metricTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#2C3E50',
-    marginBottom: 5,
+  mainCardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
   },
-  metricValue: {
+  mainCardIcon: {
+    fontSize: 24,
+  },
+  mainCardContent: {
+    marginBottom: 16,
+  },
+  mainCardLabel: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#2C3E50',
+    marginBottom: 4,
   },
-  metricUnit: {
+  mainCardDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  mainCardValues: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  valueItem: {
+    alignItems: 'center',
+  },
+  valueLabel: {
     fontSize: 12,
-    color: '#7F8C8D',
-    marginBottom: 5,
-  },  metricDescription: {
-    fontSize: 11,
-    color: '#95A5A6',
-    textAlign: 'center',
+    color: '#6B7280',
+    marginBottom: 4,
   },
-  additionalInfo: {
-    paddingHorizontal: 20,
+  valueText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  noDataText: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  sensorGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  chartContainer: {
+    margin: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  chart: {
+    marginVertical: 8,
+    borderRadius: 16,
+  },
+  noChartData: {
+    height: 180,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recommendationsContainer: {
+    margin: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  recommendationsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  recommendationItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  recommendationText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
+  lastUpdateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
     marginBottom: 20,
   },
-  environmentCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    padding: 20,
+  lastUpdateText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginLeft: 4,
+  },
+  debugContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  environmentItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  environmentDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: '#E8E8E8',
-    marginHorizontal: 10,
-  },
-  environmentLabel: {
-    fontSize: 12,
-    color: '#7F8C8D',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#F8FAFC',
+    marginHorizontal: 16,
+    borderRadius: 12,
     marginTop: 8,
-    marginBottom: 4,
   },
-  environmentValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2C3E50',
-  },
-  quickActions: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },  actionsGrid: {
+  testButton: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  actionButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    padding: 15,
-    width: (width - 60) / 2,
     alignItems: 'center',
-    marginBottom: 15,
-    elevation: 3,
+    backgroundColor: '#6366F1',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 2,
   },
-  actionIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  actionTitle: {
-    fontSize: 14,
+  testButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
     fontWeight: '600',
-    color: '#2C3E50',
-    textAlign: 'center',
-  },
-  bottomSpacing: {
-    height: 20,
+    marginLeft: 4,
   },
 });

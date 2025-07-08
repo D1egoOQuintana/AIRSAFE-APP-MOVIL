@@ -1,7 +1,7 @@
 // src/screens/alerts/AlertsScreenPro.tsx
-// Pantalla de alertas y notificaciones
+// Pantalla de alertas y notificaciones completamente funcional
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,68 +9,110 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import alertService from '../../services/alertService';
+
+interface AlertData {
+  id: string;
+  type: 'warning' | 'info' | 'danger' | 'success';
+  title: string;
+  message: string;
+  time: string;
+  location: string;
+  acknowledged: boolean;
+  timestamp?: string;
+  value?: number;
+  threshold?: number;
+  parameter?: string;
+}
 
 export default function AlertsScreenPro() {
-  const [alertSettings, setAlertSettings] = useState({
-    pm25Alerts: true,
-    pm10Alerts: true,
-    aqiAlerts: true,
-    pushNotifications: true,
-    emailAlerts: false,
-    soundAlerts: true,
-  });
+  const [alertSettings, setAlertSettings] = useState(alertService.alertSettings);
+  const [alerts, setAlerts] = useState<AlertData[]>([]);
+  const [stats, setStats] = useState({ active: 0, acknowledged: 0, totalToday: 0 });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [filter, setFilter] = useState('all');
 
-  const alerts = [
-    {
-      id: 1,
-      type: 'warning',
-      title: 'PM2.5 Alto',
-      message: 'Los niveles de PM2.5 han superado el umbral recomendado (28 μg/m³)',
-      time: '14:30',
-      location: 'Centro de Santiago',
-      acknowledged: false,
-    },
-    {
-      id: 2,
-      type: 'info',
-      title: 'Calidad Mejorada',
-      message: 'La calidad del aire ha vuelto a niveles saludables',
-      time: '12:15',
-      location: 'Centro de Santiago',
-      acknowledged: true,
-    },
-    {
-      id: 3,
-      type: 'danger',
-      title: 'AQI Crítico',
-      message: 'Índice de calidad del aire en nivel peligroso (AQI: 95)',
-      time: '11:45',
-      location: 'Zona Industrial',
-      acknowledged: false,
-    },
-    {
-      id: 4,
-      type: 'success',
-      title: 'Sistema Operativo',
-      message: 'Todos los sensores funcionando correctamente',
-      time: '08:00',
-      location: 'Red de Sensores',
-      acknowledged: true,
-    },
-  ];
+  useEffect(() => {
+    loadAlerts();
+    
+    // Escuchar cambios en las alertas
+    const handleAlertsUpdate = () => {
+      loadAlerts();
+    };
+    
+    alertService.addListener(handleAlertsUpdate);
+    
+    return () => {
+      alertService.removeListener(handleAlertsUpdate);
+    };
+  }, [filter]);
 
-  const toggleSetting = (key: keyof typeof alertSettings) => {
-    setAlertSettings(prev => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
+  const loadAlerts = () => {
+    const alertStats = alertService.getAlertStats();
+    const filteredAlerts = alertService.getAlerts(filter);
+    
+    setStats(alertStats);
+    setAlerts(filteredAlerts);
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await alertService.loadAlerts();
+    loadAlerts();
+    setIsRefreshing(false);
+  };
+
+  const toggleSetting = (key: keyof typeof alertSettings, value?: any) => {
+    const newSettings = {
+      ...alertSettings,
+      [key]: value !== undefined ? value : !alertSettings[key],
+    };
+    setAlertSettings(newSettings);
+    alertService.updateSettings(newSettings);
+  };
+
+  const acknowledgeAlert = (alertId: string) => {
+    alertService.acknowledgeAlert(alertId);
+    loadAlerts();
+  };
+
+  const testAlert = () => {
+    Alert.alert(
+      'Probar Alertas',
+      '¿Qué tipo de alerta quieres probar?',
+      [
+        { text: 'PM2.5 Alto', onPress: () => testSpecificAlert('PM2.5', 45) },
+        { text: 'AQI Crítico', onPress: () => testSpecificAlert('AQI', 120) },
+        { text: 'Calidad Mejorada', onPress: () => testImprovementAlert() },
+        { text: 'Cancelar', style: 'cancel' }
+      ]
+    );
+  };
+
+  const testSpecificAlert = (type: string, value: number) => {
+    if (type === 'PM2.5') {
+      alertService.processData({ pm25: value, pm10: 30, temperature: 22, humidity: 45 });
+    } else if (type === 'AQI') {
+      alertService.processData({ pm25: 80, pm10: 120, temperature: 22, humidity: 45 });
+    }
+  };
+
+  const testImprovementAlert = () => {
+    alertService.processData({ pm25: 15, pm10: 25, temperature: 22, humidity: 45 });
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+      }
+    >
       {/* Header */}
       <LinearGradient
         colors={['#E74C3C', '#C0392B']}
@@ -80,26 +122,54 @@ export default function AlertsScreenPro() {
         <Text style={styles.headerSubtitle}>
           Gestiona tus alertas de calidad del aire
         </Text>
+        <TouchableOpacity style={styles.testButton} onPress={testAlert}>
+          <Ionicons name="flask" size={16} color="#FFFFFF" />
+          <Text style={styles.testButtonText}>Probar</Text>
+        </TouchableOpacity>
       </LinearGradient>
 
       {/* Summary */}
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <View style={styles.summaryItem}>
-            <Text style={styles.summaryNumber}>2</Text>
+            <Text style={styles.summaryNumber}>{stats.active}</Text>
             <Text style={styles.summaryLabel}>Activas</Text>
           </View>
           <View style={styles.summaryDivider} />
           <View style={styles.summaryItem}>
-            <Text style={styles.summaryNumber}>2</Text>
+            <Text style={styles.summaryNumber}>{stats.acknowledged}</Text>
             <Text style={styles.summaryLabel}>Leídas</Text>
           </View>
           <View style={styles.summaryDivider} />
           <View style={styles.summaryItem}>
-            <Text style={styles.summaryNumber}>4</Text>
+            <Text style={styles.summaryNumber}>{stats.totalToday}</Text>
             <Text style={styles.summaryLabel}>Total Hoy</Text>
           </View>
         </View>
+      </View>
+
+      {/* Filter Buttons */}
+      <View style={styles.filterContainer}>
+        {['all', 'active', 'acknowledged'].map((filterType) => (
+          <TouchableOpacity
+            key={filterType}
+            style={[
+              styles.filterButton,
+              filter === filterType && styles.filterButtonActive,
+            ]}
+            onPress={() => setFilter(filterType)}
+          >
+            <Text
+              style={[
+                styles.filterText,
+                filter === filterType && styles.filterTextActive,
+              ]}
+            >
+              {filterType === 'all' ? 'Todas' : 
+               filterType === 'active' ? 'Activas' : 'Leídas'}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {/* Alert Settings */}
@@ -109,21 +179,21 @@ export default function AlertsScreenPro() {
         <View style={styles.settingsCard}>
           <SettingItem
             title="Alertas PM2.5"
-            description="Notificar cuando PM2.5 > 25 μg/m³"
+            description={`Notificar cuando PM2.5 > ${alertSettings.pm25Threshold} μg/m³`}
             icon="radio-button-on"
             value={alertSettings.pm25Alerts}
             onToggle={() => toggleSetting('pm25Alerts')}
           />
           <SettingItem
             title="Alertas PM10"
-            description="Notificar cuando PM10 > 50 μg/m³"
+            description={`Notificar cuando PM10 > ${alertSettings.pm10Threshold} μg/m³`}
             icon="radio-button-off"
             value={alertSettings.pm10Alerts}
             onToggle={() => toggleSetting('pm10Alerts')}
           />
           <SettingItem
             title="Alertas AQI"
-            description="Notificar cuando AQI > 75"
+            description={`Notificar cuando AQI > ${alertSettings.aqiThreshold}`}
             icon="stats-chart"
             value={alertSettings.aqiAlerts}
             onToggle={() => toggleSetting('aqiAlerts')}
@@ -139,13 +209,6 @@ export default function AlertsScreenPro() {
             onToggle={() => toggleSetting('pushNotifications')}
           />
           <SettingItem
-            title="Alertas por Email"
-            description="Enviar alertas al correo electrónico"
-            icon="mail"
-            value={alertSettings.emailAlerts}
-            onToggle={() => toggleSetting('emailAlerts')}
-          />
-          <SettingItem
             title="Sonido de Alertas"
             description="Reproducir sonido con las notificaciones"
             icon="volume-high"
@@ -159,32 +222,24 @@ export default function AlertsScreenPro() {
       <View style={styles.alertsContainer}>
         <Text style={styles.sectionTitle}>Alertas Recientes</Text>
         
-        {alerts.map((alert) => (
-          <AlertCard key={alert.id} alert={alert} />
-        ))}
-      </View>
-
-      {/* Quick Actions */}
-      <View style={styles.actionsContainer}>
-        <TouchableOpacity style={styles.actionButton}>
-          <LinearGradient
-            colors={['#3498DB', '#2980B9']}
-            style={styles.actionGradient}
-          >
-            <Ionicons name="checkmark-done" size={20} color="#FFFFFF" />
-            <Text style={styles.actionText}>Marcar Todas como Leídas</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.actionButton}>
-          <LinearGradient
-            colors={['#2ECC71', '#27AE60']}
-            style={styles.actionGradient}
-          >
-            <Ionicons name="settings" size={20} color="#FFFFFF" />
-            <Text style={styles.actionText}>Configurar Umbrales</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+        {alerts.length > 0 ? (
+          alerts.map((alert) => (
+            <AlertCard 
+              key={alert.id} 
+              alert={alert} 
+              onAcknowledge={() => acknowledgeAlert(alert.id)}
+            />
+          ))
+        ) : (
+          <View style={styles.noAlertsContainer}>
+            <Ionicons name="checkmark-circle" size={48} color="#27AE60" />
+            <Text style={styles.noAlertsText}>Sin alertas</Text>
+            <Text style={styles.noAlertsSubtext}>
+              {filter === 'all' ? 'No hay alertas registradas' :
+               filter === 'active' ? 'No hay alertas activas' : 'No hay alertas leídas'}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.bottomSpacing} />
@@ -220,7 +275,7 @@ function SettingItem({ title, description, icon, value, onToggle }: {
   );
 }
 
-function AlertCard({ alert }: { alert: any }) {
+function AlertCard({ alert, onAcknowledge }: { alert: AlertData; onAcknowledge: () => void }) {
   const getAlertColor = (type: string) => {
     switch (type) {
       case 'danger': return '#E74C3C';
@@ -255,16 +310,12 @@ function AlertCard({ alert }: { alert: any }) {
           <Text style={styles.alertTitle}>{alert.title}</Text>
           <Text style={styles.alertTime}>{alert.time} • {alert.location}</Text>
         </View>
-        
-        <TouchableOpacity style={styles.alertAction}>
-          <Ionicons name="ellipsis-vertical" size={16} color="#6B7280" />
-        </TouchableOpacity>
       </View>
       
       <Text style={styles.alertMessage}>{alert.message}</Text>
       
       {!alert.acknowledged && (
-        <TouchableOpacity style={styles.acknowledgeButton}>
+        <TouchableOpacity style={styles.acknowledgeButton} onPress={onAcknowledge}>
           <Text style={styles.acknowledgeText}>Marcar como leída</Text>
         </TouchableOpacity>
       )}
@@ -281,6 +332,7 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     paddingBottom: 30,
     paddingHorizontal: 20,
+    position: 'relative',
   },
   headerTitle: {
     fontSize: 24,
@@ -291,6 +343,23 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 16,
     color: 'rgba(255, 255, 255, 0.9)',
+  },
+  testButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  testButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 4,
   },
   summaryContainer: {
     marginHorizontal: 20,
@@ -326,8 +395,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
     marginHorizontal: 20,
   },
+  filterContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 4,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+  },
+  filterButtonActive: {
+    backgroundColor: '#3498DB',
+  },
+  filterText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  filterTextActive: {
+    color: '#FFFFFF',
+  },
   settingsContainer: {
-    marginTop: 30,
+    marginTop: 20,
     paddingHorizontal: 20,
   },
   sectionTitle: {
@@ -385,6 +480,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginTop: 10,
   },
+  noAlertsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noAlertsText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginTop: 16,
+  },
+  noAlertsSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    textAlign: 'center',
+  },
   alertCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 15,
@@ -440,9 +551,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
   },
-  alertAction: {
-    padding: 5,
-  },
   alertMessage: {
     fontSize: 14,
     color: '#374151',
@@ -461,28 +569,7 @@ const styles = StyleSheet.create({
     color: '#3498DB',
     fontWeight: '600',
   },
-  actionsContainer: {
-    marginTop: 20,
-    paddingHorizontal: 20,
-  },
-  actionButton: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginBottom: 15,
-  },
-  actionGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 15,
-  },
-  actionText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 10,
-  },
   bottomSpacing: {
-    height: 30,
+    height: 40,
   },
 });

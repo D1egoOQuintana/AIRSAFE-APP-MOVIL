@@ -1,7 +1,7 @@
 // src/screens/history/HistoryScreenPro.tsx
-// Pantalla de historial con gráficos y análisis
+// Pantalla de historial con datos MQTT reales y gráficos
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,34 +9,210 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { LineChart } from 'react-native-chart-kit';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import mqttManager from '../../services/MqttManager';
+import { calculateOverallAirQuality } from '../../utils/airQuality';
 
 const { width } = Dimensions.get('window');
 
+interface HistoryDataPoint {
+  timestamp: string;
+  pm25: number;
+  pm10: number;
+  temperature: number;
+  humidity: number;
+  aqi: number;
+  status: string;
+}
+
 export default function HistoryScreenPro() {
   const [selectedPeriod, setSelectedPeriod] = useState('today');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [historyData, setHistoryData] = useState<HistoryDataPoint[]>([]);
+  const [stats, setStats] = useState({
+    avgPM25: 0,
+    maxAQI: 0,
+    healthyHours: 0,
+    avgQuality: 'Buena'
+  });
 
-  // Datos simulados de historial
-  const historyData = {
-    today: [
-      { time: '08:00', pm25: 15, aqi: 30 },
-      { time: '10:00', pm25: 18, aqi: 36 },
-      { time: '12:00', pm25: 22, aqi: 44 },
-      { time: '14:00', pm25: 28, aqi: 56 },
-      { time: '16:00', pm25: 25, aqi: 50 },
-      { time: '18:00', pm25: 20, aqi: 40 },
-    ],
-    week: [
-      { time: 'Lun', pm25: 18, aqi: 36 },
-      { time: 'Mar', pm25: 22, aqi: 44 },
-      { time: 'Mié', pm25: 25, aqi: 50 },
-      { time: 'Jue', pm25: 20, aqi: 40 },
-      { time: 'Vie', pm25: 28, aqi: 56 },
-      { time: 'Sáb', pm25: 15, aqi: 30 },
-      { time: 'Dom', pm25: 12, aqi: 24 },
-    ],
+  useEffect(() => {
+    loadHistoryData();
+    setupMQTTListener();
+    
+    return () => {
+      mqttManager.removeAllListeners();
+    };
+  }, []);
+
+  const setupMQTTListener = () => {
+    mqttManager.on('dataUpdate', handleNewData);
+  };
+
+  const handleNewData = async ({ sensorData }: { sensorData: any }) => {
+    const airQuality = calculateOverallAirQuality(sensorData.pm25, sensorData.pm10);
+    
+    const newDataPoint: HistoryDataPoint = {
+      timestamp: new Date().toISOString(),
+      pm25: parseFloat(sensorData.pm25) || 0,
+      pm10: parseFloat(sensorData.pm10) || 0,
+      temperature: parseFloat(sensorData.temperature) || 0,
+      humidity: parseFloat(sensorData.humidity) || 0,
+      aqi: airQuality?.value || 0,
+      status: airQuality?.label || 'Desconocido'
+    };
+
+    // Agregar a historial manteniendo siempre mínimo 3 datos y máximo 1000
+    setHistoryData(prevHistory => {
+      const updatedHistory = [newDataPoint, ...prevHistory];
+      // Solo mantener los últimos 1000 puntos pero mínimo 3
+      const finalHistory = updatedHistory.slice(0, Math.max(1000, 3));
+      saveHistoryData(finalHistory);
+      calculateStats(finalHistory);
+      return finalHistory;
+    });
+  };
+
+  const loadHistoryData = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('@airsafe_history');
+      if (stored) {
+        const data = JSON.parse(stored);
+        setHistoryData(data);
+        calculateStats(data);
+      } else {
+        // Inicializar con datos por defecto si no hay historial
+        const defaultData: HistoryDataPoint[] = [
+          {
+            timestamp: new Date(Date.now() - 120000).toISOString(), // -2 min
+            pm25: 25,
+            pm10: 40,
+            temperature: 22,
+            humidity: 45,
+            aqi: 25,
+            status: 'Buena'
+          },
+          {
+            timestamp: new Date(Date.now() - 60000).toISOString(), // -1 min
+            pm25: 30,
+            pm10: 45,
+            temperature: 23,
+            humidity: 47,
+            aqi: 30,
+            status: 'Buena'
+          },
+          {
+            timestamp: new Date().toISOString(), // ahora
+            pm25: 35,
+            pm10: 50,
+            temperature: 24,
+            humidity: 50,
+            aqi: 35,
+            status: 'Moderada'
+          }
+        ];
+        setHistoryData(defaultData);
+        await saveHistoryData(defaultData);
+        calculateStats(defaultData);
+      }
+    } catch (error) {
+      console.error('Error loading history:', error);
+    }
+  };
+
+  const saveHistoryData = async (data: HistoryDataPoint[]) => {
+    try {
+      await AsyncStorage.setItem('@airsafe_history', JSON.stringify(data));
+    } catch (error) {
+      console.error('Error saving history:', error);
+    }
+  };
+
+  const calculateStats = (data: HistoryDataPoint[]) => {
+    if (data.length === 0) return;
+
+    const avgPM25 = data.reduce((sum, point) => sum + point.pm25, 0) / data.length;
+    const maxAQI = Math.max(...data.map(point => point.aqi));
+    const healthyHours = data.filter(point => point.aqi <= 50).length;
+    const avgQuality = avgPM25 <= 35 ? 'Buena' : avgPM25 <= 75 ? 'Moderada' : 'Mala';
+
+    setStats({
+      avgPM25: Math.round(avgPM25),
+      maxAQI,
+      healthyHours,
+      avgQuality
+    });
+  };
+
+  const getFilteredData = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const week = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const month = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    return historyData.filter(point => {
+      const pointDate = new Date(point.timestamp);
+      switch (selectedPeriod) {
+        case 'today':
+          return pointDate >= today;
+        case 'week':
+          return pointDate >= week;
+        case 'month':
+          return pointDate >= month;
+        default:
+          return true;
+      }
+    });
+  };
+
+  const getChartData = () => {
+    const filteredData = getFilteredData();
+    
+    // Asegurar que siempre haya al menos 3 puntos para el gráfico
+    if (filteredData.length === 0) {
+      return {
+        labels: ['Sin datos'],
+        datasets: [{
+          data: [0],
+          strokeWidth: 2,
+          color: (opacity = 1) => `rgba(134, 65, 244, ${opacity})`
+        }]
+      };
+    }
+
+    // Si hay menos de 3 puntos, usar todos los disponibles
+    let chartPoints = filteredData;
+    
+    // Si hay más de 20 puntos, tomar una muestra representativa
+    if (filteredData.length > 20) {
+      const step = Math.max(1, Math.floor(filteredData.length / 20));
+      chartPoints = filteredData.filter((_, index) => index % step === 0).slice(0, 20);
+    }
+    
+    // Invertir para que el tiempo vaya de izquierda a derecha
+    chartPoints = [...chartPoints].reverse();
+
+    return {
+      labels: chartPoints.map(point => 
+        new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ),
+      datasets: [{
+        data: chartPoints.map(point => point.pm25),
+        strokeWidth: 3,
+        color: (opacity = 1) => `rgba(30, 144, 255, ${opacity})`
+      }]
+    };
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadHistoryData();
+    setIsRefreshing(false);
   };
 
   const periods = [
@@ -46,7 +222,12 @@ export default function HistoryScreenPro() {
   ];
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+      }
+    >
       {/* Header */}
       <LinearGradient
         colors={['#3498DB', '#2980B9']}
@@ -54,7 +235,7 @@ export default function HistoryScreenPro() {
       >
         <Text style={styles.headerTitle}>Historial de Mediciones</Text>
         <Text style={styles.headerSubtitle}>
-          Análisis y tendencias de calidad del aire
+          Datos reales MQTT • {historyData.length} puntos guardados
         </Text>
       </LinearGradient>
 
@@ -86,96 +267,111 @@ export default function HistoryScreenPro() {
         ))}
       </View>
 
-      {/* Chart Simulation */}
+      {/* Gráfico Real con React Native Chart Kit */}
       <View style={styles.chartContainer}>
-        <Text style={styles.sectionTitle}>Gráfico PM2.5</Text>
+        <Text style={styles.sectionTitle}>Gráfico PM2.5 (Tiempo Real)</Text>
         <View style={styles.chartCard}>
-          <View style={styles.chart}>
-            {(historyData[selectedPeriod as keyof typeof historyData] || historyData.today).map((point, index) => (
-              <View key={index} style={styles.chartPoint}>
-                <View
-                  style={[
-                    styles.chartBar,
-                    {
-                      height: (point.pm25 / 30) * 100,
-                      backgroundColor: point.pm25 > 25 ? '#E74C3C' : point.pm25 > 15 ? '#F39C12' : '#2ECC71',
-                    },
-                  ]}
-                />
-                <Text style={styles.chartLabel}>{point.time}</Text>
-                <Text style={styles.chartValue}>{point.pm25}</Text>
-              </View>
-            ))}
-          </View>
+          {historyData.length > 0 ? (
+            <LineChart
+              data={getChartData()}
+              width={width - 64}
+              height={220}
+              chartConfig={{
+                backgroundColor: '#1e2923',
+                backgroundGradientFrom: '#08130D',
+                backgroundGradientTo: '#1e2923',
+                decimalPlaces: 1,
+                color: (opacity = 1) => `rgba(26, 255, 146, ${opacity})`,
+                labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                style: {
+                  borderRadius: 16
+                },
+                propsForDots: {
+                  r: "4",
+                  strokeWidth: "2",
+                  stroke: "#ffa726"
+                }
+              }}
+              bezier
+              style={{
+                marginVertical: 8,
+                borderRadius: 16
+              }}
+            />
+          ) : (
+            <View style={styles.noDataContainer}>
+              <Ionicons name="analytics-outline" size={48} color="#9CA3AF" />
+              <Text style={styles.noDataText}>Sin datos históricos</Text>
+              <Text style={styles.noDataSubtext}>Los datos aparecerán cuando lleguen de MQTT</Text>
+            </View>
+          )}
         </View>
       </View>
 
-      {/* Statistics */}
+      {/* Statistics Reales */}
       <View style={styles.statsContainer}>
         <Text style={styles.sectionTitle}>Estadísticas del Período</Text>
         
         <View style={styles.statsGrid}>
           <StatCard
             title="Promedio PM2.5"
-            value="21"
+            value={stats.avgPM25.toString()}
             unit="μg/m³"
             icon="stats-chart"
             color="#3498DB"
-            trend="+5%"
-            trendUp={false}
+            trend={historyData.length > 1 ? "Datos reales" : "Calculando..."}
+            trendUp={stats.avgPM25 <= 35}
           />
           <StatCard
             title="Máximo AQI"
-            value="56"
+            value={stats.maxAQI.toString()}
             unit=""
             icon="trending-up"
-            color="#E74C3C"
-            trend="+12%"
-            trendUp={false}
+            color={stats.maxAQI > 100 ? "#E74C3C" : "#27AE60"}
+            trend={`${getFilteredData().length} mediciones`}
+            trendUp={stats.maxAQI <= 50}
           />
           <StatCard
-            title="Horas Saludables"
-            value="18"
-            unit="hrs"
+            title="Mediciones OK"
+            value={stats.healthyHours.toString()}
+            unit="puntos"
             icon="checkmark-circle"
             color="#2ECC71"
-            trend="+3h"
+            trend={`${Math.round((stats.healthyHours/getFilteredData().length)*100)}%`}
             trendUp={true}
           />
           <StatCard
             title="Calidad Promedio"
-            value="Buena"
+            value={stats.avgQuality}
             unit=""
             icon="leaf"
             color="#27AE60"
-            trend="Estable"
+            trend="En tiempo real"
             trendUp={true}
           />
         </View>
       </View>
 
-      {/* Historical Events */}
+      {/* Recent Events from Real Data */}
       <View style={styles.eventsContainer}>
-        <Text style={styles.sectionTitle}>Eventos Destacados</Text>
+        <Text style={styles.sectionTitle}>Eventos Recientes</Text>
         
-        <EventCard
-          time="14:30"
-          title="Pico de contaminación"
-          description="PM2.5 alcanzó 28 μg/m³"
-          type="warning"
-        />
-        <EventCard
-          time="08:00"
-          title="Calidad óptima"
-          description="Mejor calidad de aire del día"
-          type="success"
-        />
-        <EventCard
-          time="16:45"
-          title="Alerta configurada"
-          description="Se activó notificación por umbral"
-          type="info"
-        />
+        {getFilteredData().slice(0, 5).map((point, index) => (
+          <EventCard
+            key={index}
+            time={new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            title={`PM2.5: ${point.pm25} μg/m³`}
+            description={`Estado: ${point.status} • AQI: ${point.aqi}`}
+            type={point.aqi <= 50 ? "success" : point.aqi <= 100 ? "warning" : "info"}
+          />
+        ))}
+        
+        {getFilteredData().length === 0 && (
+          <View style={styles.noEventsContainer}>
+            <Ionicons name="time-outline" size={32} color="#9CA3AF" />
+            <Text style={styles.noEventsText}>No hay eventos en este período</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.bottomSpacing} />
@@ -462,5 +658,31 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 30,
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  noDataText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    marginTop: 12,
+  },
+  noDataSubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  noEventsContainer: {
+    alignItems: 'center',
+    paddingVertical: 30,
+  },
+  noEventsText: {
+    fontSize: 16,
+    color: '#9CA3AF',
+    marginTop: 8,
   },
 });

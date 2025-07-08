@@ -1,6 +1,6 @@
 # 📱 AirSafe Mobile App - React Native
 
-Una aplicación móvil profesional para monitoreo de calidad del aire en tiempo real, desarrollada con React Native/Expo y conectada a sensores IoT ESP32 con PMS5003.
+Una aplicación móvil profesional para monitoreo de calidad del aire en tiempo real, desarrollada con React Native/Expo y conectada a sensores IoT ESP32 con PMS5003 a través de MQTT.
 
 ## 🚀 Estado del Proyecto
 
@@ -10,64 +10,57 @@ Una aplicación móvil profesional para monitoreo de calidad del aire en tiempo 
 - Configuración de Redux Toolkit con slices
 - Componentes UI reutilizables (Card, Button, AirQualityCard)
 - Sistema de navegación con tabs y stack
-- Hooks personalizados (useMQTT, useAirQuality, useNotifications)
-- Servicios base (MQTT, API, Storage)
-- Simulador de datos realista para desarrollo
+- Servicios MQTT en tiempo real con MqttManager
+- Sistema de notificaciones push automáticas
 - Sistema de colores y tema moderno 2025
 - Cálculo de AQI según estándares EPA/OMS
 - Configuración de path aliases (@/*)
+- Dashboard en tiempo real con datos MQTT
+- Sistema de alertas y notificaciones
+- Historial de datos con gráficos
 
-🔧 **Pendiente de Configuración:**
-- Variables de entorno MQTT (ver sección "Configuración MQTT")
-- Dependencias npm (ver package.json sugerido)
-- Notificaciones push con Expo
-- Gráficos interactivos con Victory Native
+🔧 **Configuración MQTT:**
+- Broker: test.mosquitto.org:1883
+- Topics: d1ego/airsafe/#
+- Conexión TCP sin autenticación
 
 ## 🛠️ Configuración para Desarrollo
 
 ### 1. Instalar Dependencias
 
 ```bash
-npm install @reduxjs/toolkit react-redux @react-navigation/native @react-navigation/bottom-tabs @react-navigation/stack react-native-screens react-native-safe-area-context @react-native-async-storage/async-storage expo-notifications
+npm install @reduxjs/toolkit react-redux @react-navigation/native @react-navigation/bottom-tabs @react-navigation/stack react-native-screens react-native-safe-area-context @react-native-async-storage/async-storage expo-notifications react-native-chart-kit react-native-svg paho-mqtt
 ```
 
 ### 2. Configuración MQTT
 
-Edita `src/constants/CONFIG.ts` y `src/constants/mqtt.ts`:
+La aplicación está configurada para conectarse automáticamente a:
 
 ```typescript
-// Reemplaza los PLACEHOLDER por tus valores reales
-export const CONFIG = {
-  mqtt: {
-    broker: 'wss://tu-broker-mqtt.com',
-    port: 8884,
-    username: 'tu-usuario',
-    password: 'tu-contraseña',
-  },
-  // ...
+// Configuración actual en src/constants/mqtt.ts
+export const MQTT_CONFIG = {
+  brokerUrl: 'test.mosquitto.org',
+  port: 1883,
+  topics: {
+    pm25: 'd1ego/airsafe/pm25',
+    pm10: 'd1ego/airsafe/pm10',
+    temperature: 'd1ego/airsafe/temperature',
+    humidity: 'd1ego/airsafe/humidity',
+    wifi_signal: 'd1ego/airsafe/wifi_signal',
+    air_quality: 'd1ego/airsafe/air_quality',
+    status: 'd1ego/airsafe/status',
+    all: 'd1ego/airsafe/#'
+  }
 };
 ```
 
-### 3. Variables de Entorno
-
-Crea un archivo `.env` en la raíz:
-
-```env
-EXPO_PUBLIC_MQTT_BROKER=wss://tu-broker-mqtt.com
-EXPO_PUBLIC_MQTT_PORT=8884
-EXPO_PUBLIC_MQTT_USER=tu-usuario
-EXPO_PUBLIC_MQTT_PASS=tu-contraseña
-```
-
-### 4. Ejecutar en Modo Simulador
-
-El proyecto incluye un simulador de datos que genera información realista:
+### 3. Ejecutar la Aplicación
 
 ```bash
 npm start
 ```
 
-**Importante:** El simulador está activado por defecto en `DashboardScreen.tsx`. Para usar MQTT real, cambia `useSimulator: false` en el hook `useMQTT`.
+La aplicación se conectará automáticamente al broker MQTT y comenzará a recibir datos en tiempo real.
 
 ## 📁 Estructura del Proyecto
 
@@ -80,12 +73,13 @@ src/
 ├── constants/          # Configuraciones y constantes
 │   ├── airQuality.ts   # Cálculos AQI y umbrales EPA
 │   ├── theme.ts        # Sistema de diseño completo
-│   ├── mqtt.ts         # Configuración MQTT
-│   └── CONFIG.ts       # Variables de entorno
-├── hooks/              # Hooks personalizados
-│   ├── useMQTT.ts      # Conexión MQTT + simulador
-│   ├── useAirQuality.ts # Cálculos de calidad del aire
-│   └── useNotifications.ts # Notificaciones
+│   └── mqtt.ts         # Configuración MQTT
+├── services/           # Servicios principales
+│   ├── MqttManager.js  # Gestor MQTT en tiempo real
+│   ├── mqttService.ts  # Wrapper del MqttManager
+│   └── notificationService.js # Notificaciones push
+├── utils/              # Utilidades
+│   └── airQuality.js   # Cálculos de calidad del aire
 ├── navigation/         # Configuración de navegación
 ├── screens/            # Pantallas de la app
 │   ├── dashboard/      # Dashboard principal
@@ -118,42 +112,50 @@ src/
 ### Componentes Disponibles
 - `<Card>`: Contenedor con sombras y variantes
 - `<Button>`: Botón moderno con estados
-- `<AirQualityCard>`: Métricas de calidad del aire
+- `<SensorCard>`: Métricas de sensores en tiempo real
 
 ## 🔌 Integración MQTT
 
-### Modo Simulador (Desarrollo)
-```typescript
-// En DashboardScreen.tsx
-useMQTT({
-  deviceId: 'airsafe-001',
-  onData: (data) => {/* ... */},
-  useSimulator: true, // ✅ Datos simulados
-});
-```
+La aplicación está configurada para recibir datos MQTT en tiempo real del broker `test.mosquitto.org:1883` en los siguientes topics:
 
-### Modo Producción
-```typescript
-// Para conectar a MQTT real
-useMQTT({
-  deviceId: 'airsafe-001',
-  onData: (data) => {/* ... */},
-  useSimulator: false, // ❌ MQTT real
-});
-```
+- `d1ego/airsafe/pm25` - Concentración PM2.5
+- `d1ego/airsafe/pm10` - Concentración PM10  
+- `d1ego/airsafe/temperature` - Temperatura
+- `d1ego/airsafe/humidity` - Humedad
+- `d1ego/airsafe/wifi_signal` - Señal WiFi
+- `d1ego/airsafe/air_quality` - Categoría de calidad
+- `d1ego/airsafe/status` - Estado del dispositivo
 
-## 📊 Datos del Simulador
+### Características MQTT
+- **Reconexión automática:** Hasta 5 intentos con intervalos de 5s
+- **Persistencia:** Datos guardados en AsyncStorage
+- **Notificaciones:** Alertas automáticas por mala calidad del aire
+- **Estado de conexión:** Indicador visual en tiempo real
 
-El simulador genera datos realistas:
-- **Patrones diurnos:** Mayor contaminación en horas pico (6-9 AM, 6-9 PM)
-- **Valores aleatorios:** PM1, PM2.5, PM10 con rangos creíbles
-- **Datos adicionales:** Temperatura, humedad, presión
-- **Intervalos:** Cada 5 segundos (configurable)
+## 📊 Pantallas Implementadas
+
+### Dashboard Principal
+- Métricas en tiempo real de todos los sensores
+- Gráficos de tendencias y historial 24h
+- Estado de conexión MQTT
+- Recomendaciones automáticas según AQI
+
+### Sistema de Alertas
+- Historial de alertas con timestamp
+- Configuración de umbrales personalizados
+- Notificaciones push automáticas
+- Filtros y búsqueda de alertas
+
+### Historial y Gráficos
+- Tendencias de hasta 24 horas
+- Gráficos interactivos con Chart Kit
+- Exportación de datos
+- Análisis de patrones
 
 ## 🚀 Próximos Pasos
 
-1. **Conectar hardware real:** Reemplazar simulador por MQTT
-2. **Implementar gráficos:** Victory Native para historial
+1. **Optimizar gráficos:** Mejorar rendimiento de Chart Kit
+2. **Exportar datos:** Funcionalidad de backup/restore
 3. **Notificaciones push:** Expo Notifications
 4. **Offline storage:** Persistencia con Redux Persist
 5. **Testing:** Jest y React Native Testing Library
