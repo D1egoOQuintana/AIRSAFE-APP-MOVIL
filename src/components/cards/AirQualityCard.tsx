@@ -34,7 +34,7 @@ export function AirQualityCard({ reading, showDetails = false }: AirQualityCardP
           
           <View style={styles.effects}>
             {reading.healthEffects.map((effect, index) => (
-              <Text key={index} style={styles.effect}>
+              <Text key={`effect-${Date.now()}-${index}-${effect.slice(0, 20).replace(/\s/g, '')}`} style={styles.effect}>
                 • {effect}
               </Text>
             ))}

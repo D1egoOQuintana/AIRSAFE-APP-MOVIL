@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import mqttManager from '../../services/MqttManager';
+import eventService from '../../services/eventService';
 import { calculateOverallAirQuality } from '../../utils/airQuality';
 
 const { width } = Dimensions.get('window');
@@ -34,6 +35,7 @@ export default function HistoryScreenPro() {
   const [selectedPeriod, setSelectedPeriod] = useState('today');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [historyData, setHistoryData] = useState<HistoryDataPoint[]>([]);
+  const [recentEvents, setRecentEvents] = useState<any[]>([]);
   const [stats, setStats] = useState({
     avgPM25: 0,
     maxAQI: 0,
@@ -43,12 +45,22 @@ export default function HistoryScreenPro() {
 
   useEffect(() => {
     loadHistoryData();
+    loadRecentEvents();
     setupMQTTListener();
+    
+    // Generar eventos de muestra si no hay datos
+    eventService.generateSampleEvents();
     
     return () => {
       mqttManager.removeAllListeners();
     };
   }, []);
+
+  const loadRecentEvents = async () => {
+    await eventService.loadEvents();
+    const events = eventService.getRecentEvents(5);
+    setRecentEvents(events);
+  };
 
   const setupMQTTListener = () => {
     mqttManager.on('dataUpdate', handleNewData);
@@ -67,14 +79,43 @@ export default function HistoryScreenPro() {
       status: airQuality?.label || 'Desconocido'
     };
 
-    // Agregar a historial manteniendo siempre mínimo 3 datos y máximo 1000
+    // Agregar a historial solo si hay cambios significativos o ha pasado tiempo suficiente
     setHistoryData(prevHistory => {
-      const updatedHistory = [newDataPoint, ...prevHistory];
-      // Solo mantener los últimos 1000 puntos pero mínimo 3
-      const finalHistory = updatedHistory.slice(0, Math.max(1000, 3));
-      saveHistoryData(finalHistory);
-      calculateStats(finalHistory);
-      return finalHistory;
+      const lastPoint = prevHistory[0];
+      const now = new Date();
+      const lastTime = lastPoint ? new Date(lastPoint.timestamp) : new Date(0);
+      const timeDiff = (now.getTime() - lastTime.getTime()) / 1000 / 60; // minutos
+      
+      // Solo agregar si:
+      // 1. No hay datos previos
+      // 2. Han pasado al menos 2 minutos
+      // 3. Hay cambio significativo en PM2.5 (±2 μg/m³)
+      const shouldAdd = !lastPoint || 
+                       timeDiff >= 2 || 
+                       Math.abs(newDataPoint.pm25 - lastPoint.pm25) >= 2;
+      
+      if (shouldAdd) {
+        const updatedHistory = [newDataPoint, ...prevHistory];
+        // Mantener máximo 1000 puntos pero mínimo 3
+        const finalHistory = updatedHistory.slice(0, Math.max(1000, 3));
+        saveHistoryData(finalHistory);
+        calculateStats(finalHistory);
+        
+        // Agregar evento al servicio de eventos
+        eventService.addEvent(sensorData);
+        loadRecentEvents(); // Actualizar eventos recientes
+        
+        return finalHistory;
+      }
+      
+      // Si no se debe agregar, solo actualizar el último punto con timestamp más reciente
+      if (lastPoint) {
+        const updatedHistory = [...prevHistory];
+        updatedHistory[0] = { ...updatedHistory[0], timestamp: newDataPoint.timestamp };
+        return updatedHistory;
+      }
+      
+      return prevHistory;
     });
   };
 
@@ -212,6 +253,7 @@ export default function HistoryScreenPro() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await loadHistoryData();
+    await loadRecentEvents();
     setIsRefreshing(false);
   };
 
@@ -352,24 +394,24 @@ export default function HistoryScreenPro() {
         </View>
       </View>
 
-      {/* Recent Events from Real Data */}
+      {/* Recent Events from Event Service */}
       <View style={styles.eventsContainer}>
         <Text style={styles.sectionTitle}>Eventos Recientes</Text>
         
-        {getFilteredData().slice(0, 5).map((point, index) => (
-          <EventCard
-            key={index}
-            time={new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            title={`PM2.5: ${point.pm25} μg/m³`}
-            description={`Estado: ${point.status} • AQI: ${point.aqi}`}
-            type={point.aqi <= 50 ? "success" : point.aqi <= 100 ? "warning" : "info"}
-          />
-        ))}
-        
-        {getFilteredData().length === 0 && (
+        {recentEvents.length > 0 ? (
+          recentEvents.map((event, index) => (
+            <EventCard
+              key={`event-${event.id}-${Date.now()}-${index}`}
+              time={event.time}
+              title={event.title}
+              description={event.description}
+              type={event.type as 'success' | 'warning' | 'info' | 'danger'}
+            />
+          ))
+        ) : (
           <View style={styles.noEventsContainer}>
             <Ionicons name="time-outline" size={32} color="#9CA3AF" />
-            <Text style={styles.noEventsText}>No hay eventos en este período</Text>
+            <Text style={styles.noEventsText}>No hay eventos recientes</Text>
           </View>
         )}
       </View>
@@ -416,13 +458,14 @@ function EventCard({ time, title, description, type }: {
   time: string;
   title: string;
   description: string;
-  type: 'success' | 'warning' | 'info';
+  type: 'success' | 'warning' | 'info' | 'danger';
 }) {
   const getEventColor = (type: string) => {
     switch (type) {
       case 'success': return '#2ECC71';
       case 'warning': return '#F39C12';
       case 'info': return '#3498DB';
+      case 'danger': return '#E74C3C';
       default: return '#6B7280';
     }
   };
@@ -432,6 +475,7 @@ function EventCard({ time, title, description, type }: {
       case 'success': return 'checkmark-circle';
       case 'warning': return 'warning';
       case 'info': return 'information-circle';
+      case 'danger': return 'alert-circle';
       default: return 'ellipse';
     }
   };

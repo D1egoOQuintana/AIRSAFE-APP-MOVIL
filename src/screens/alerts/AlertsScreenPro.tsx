@@ -106,6 +106,47 @@ export default function AlertsScreenPro() {
     alertService.processData({ pm25: 15, pm10: 25, temperature: 22, humidity: 45 });
   };
 
+  const markAllAsRead = () => {
+    Alert.alert(
+      'Marcar todas como leídas',
+      '¿Estás seguro de que quieres marcar todas las alertas como leídas?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel'
+        },
+        {
+          text: 'Sí, marcar todas',
+          onPress: () => {
+            alertService.markAllAsRead();
+            loadAlerts();
+          }
+        }
+      ]
+    );
+  };
+
+  const clearAllAlerts = () => {
+    Alert.alert(
+      'Eliminar todas las alertas',
+      '¿Estás seguro de que quieres eliminar permanentemente todas las alertas? Esta acción no se puede deshacer.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel'
+        },
+        {
+          text: 'Sí, eliminar todas',
+          style: 'destructive',
+          onPress: () => {
+            alertService.clearAllAlerts();
+            loadAlerts();
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <ScrollView 
       style={styles.container}
@@ -220,7 +261,26 @@ export default function AlertsScreenPro() {
 
       {/* Alerts List */}
       <View style={styles.alertsContainer}>
-        <Text style={styles.sectionTitle}>Alertas Recientes</Text>
+        <View style={styles.alertsHeader}>
+          <Text style={styles.sectionTitle}>Alertas Recientes</Text>
+          
+          {alerts.length > 0 && (
+            <View style={styles.alertsActions}>
+              <TouchableOpacity style={styles.actionButton} onPress={markAllAsRead}>
+                <Ionicons name="checkmark-done" size={16} color="#3498DB" />
+                <Text style={styles.actionButtonText}>Marcar todas</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.actionButtonDanger]} 
+                onPress={clearAllAlerts}
+              >
+                <Ionicons name="trash" size={16} color="#EF4444" />
+                <Text style={[styles.actionButtonText, styles.actionButtonTextDanger]}>Eliminar todas</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
         
         {alerts.length > 0 ? (
           alerts.map((alert) => (
@@ -568,6 +628,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#3498DB',
     fontWeight: '600',
+  },
+  alertsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  alertsActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  actionButtonDanger: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  actionButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#3498DB',
+    marginLeft: 4,
+  },
+  actionButtonTextDanger: {
+    color: '#EF4444',
   },
   bottomSpacing: {
     height: 40,

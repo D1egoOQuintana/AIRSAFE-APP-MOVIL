@@ -320,6 +320,7 @@ export default function DashboardScreenPro() {
   const renderSensorCards = () => {
     const pm25Quality = calculatePM25Quality(sensorData.pm25);
     const pm10Quality = calculatePM10Quality(sensorData.pm10);
+    const overallQuality = calculateOverallAirQuality(sensorData.pm25, sensorData.pm10);
     
     return (
       <View style={styles.sensorGrid}>
@@ -350,16 +351,16 @@ export default function DashboardScreenPro() {
         />
         
         <SensorCard
-          title="Temperatura"
-          value={sensorData.temperature}
-          unit="°C"
-          icon="🌡️"
-          color={getTemperatureColor(sensorData.temperature)}
-          bgColor={getTemperatureColor(sensorData.temperature) + '20'}
-          description="Temperatura ambiente"
+          title="ICA/AQI"
+          value={overallQuality?.aqi || '--'}
+          unit=""
+          icon={overallQuality?.icon || '📊'}
+          color={overallQuality?.color || '#6B7280'}
+          bgColor={overallQuality?.bgColor || '#F3F4F6'}
+          description={overallQuality?.label || 'Sin datos'}
           isConnected={connectionStatus.isConnected}
           lastUpdate={sensorData.lastUpdate}
-          onPress={() => handleSensorCardPress('Temperatura')}
+          onPress={() => handleSensorCardPress('AQI')}
         />
         
         <SensorCard
@@ -465,10 +466,44 @@ export default function DashboardScreenPro() {
       <View style={styles.recommendationsContainer}>
         <Text style={styles.recommendationsTitle}>Recomendaciones</Text>
         {recommendations.map((recommendation, index) => (
-          <View key={index} style={styles.recommendationItem}>
+          <View key={`recommendation-${Date.now()}-${index}-${recommendation.slice(0, 20).replace(/\s/g, '')}`} style={styles.recommendationItem}>
             <Text style={styles.recommendationText}>{recommendation}</Text>
           </View>
         ))}
+      </View>
+    );
+  };
+
+  const renderEPAScale = () => {
+    const scaleData = [
+      { category: 'Buena', pm25: '0-12', pm10: '0-54', color: '#22C55E', description: 'Sin riesgo' },
+      { category: 'Moderada', pm25: '12.1-35.4', pm10: '55-154', color: '#EAB308', description: 'Riesgo leve para sensibles' },
+      { category: 'Insalubre para sensibles', pm25: '35.5-55.4', pm10: '155-254', color: '#F97316', description: 'Riesgo para asmáticos, ancianos' },
+      { category: 'Insalubre', pm25: '55.5-150.4', pm10: '255-354', color: '#EF4444', description: 'Riesgo para todos' },
+      { category: 'Muy insalubre', pm25: '150.5-250.4', pm10: '355-424', color: '#8B5CF6', description: 'Riesgo severo' },
+      { category: 'Peligroso', pm25: '>250.5', pm10: '>425', color: '#7F1D1D', description: 'Riesgo grave para todos' }
+    ];
+
+    return (
+      <View style={styles.epaScaleContainer}>
+        <Text style={styles.epaScaleTitle}>📊 Escala del Índice de Calidad del Aire (ICA / AQI)</Text>
+        <Text style={styles.epaScaleSubtitle}>Basado en la EPA de EE. UU.</Text>
+        
+        <View style={styles.epaScaleTable}>
+          {scaleData.map((item, index) => (
+            <View key={`epa-scale-${item.category.replace(/\s+/g, '-')}-${Date.now()}-${index}`} style={styles.epaScaleRow}>
+              <View style={[styles.epaScaleColorDot, { backgroundColor: item.color }]} />
+              <View style={styles.epaScaleContent}>
+                <Text style={styles.epaScaleCategory}>{item.category}</Text>
+                <Text style={styles.epaScaleDescription}>{item.description}</Text>
+                <View style={styles.epaScaleValues}>
+                  <Text style={styles.epaScaleValue}>PM2.5: {item.pm25} μg/m³</Text>
+                  <Text style={styles.epaScaleValue}>PM10: {item.pm10} μg/m³</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
       </View>
     );
   };
@@ -547,6 +582,9 @@ export default function DashboardScreenPro() {
         
         {/* Recommendations */}
         {renderRecommendations()}
+        
+        {/* EPA Scale Information */}
+        {renderEPAScale()}
         
         {/* Last Update */}
         {sensorData.lastUpdate && (
@@ -798,5 +836,70 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginLeft: 4,
+  },
+  // EPA Scale Styles
+  epaScaleContainer: {
+    backgroundColor: '#FFFFFF',
+    margin: 16,
+    padding: 20,
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  epaScaleTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  epaScaleSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  epaScaleTable: {
+    gap: 12,
+  },
+  epaScaleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+  },
+  epaScaleColorDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  epaScaleContent: {
+    flex: 1,
+  },
+  epaScaleCategory: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  epaScaleDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  epaScaleValues: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  epaScaleValue: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '500',
   },
 });

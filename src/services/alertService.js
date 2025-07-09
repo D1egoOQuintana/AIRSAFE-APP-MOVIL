@@ -9,11 +9,11 @@ class AlertService {
     this.alerts = [];
     this.alertSettings = {
       pm25Alerts: true,
-      pm25Threshold: 25,
+      pm25Threshold: 35.4, // EPA threshold for "Insalubre para sensibles"
       pm10Alerts: true,
-      pm10Threshold: 50,
+      pm10Threshold: 154, // EPA threshold for "Insalubre para sensibles"
       aqiAlerts: true,
-      aqiThreshold: 75,
+      aqiThreshold: 100, // EPA threshold for "Moderado"
       pushNotifications: true,
       emailAlerts: false,
       soundAlerts: true,
@@ -141,7 +141,7 @@ class AlertService {
     }
 
     const alert = {
-      id: Date.now().toString(),
+      id: `alert-${now}-${Math.random().toString(36).substr(2, 9)}-${alertData.parameter}`,
       ...alertData,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       timestamp: new Date().toISOString(),
@@ -257,6 +257,22 @@ class AlertService {
       new Date(alert.timestamp).getTime() > weekAgo
     );
     this.saveAlerts();
+  }
+
+  // Limpiar todas las alertas
+  clearAllAlerts() {
+    this.alerts = [];
+    this.saveAlerts();
+    this.notifyListeners();
+  }
+
+  // Marcar todas las alertas como leídas
+  markAllAsRead() {
+    this.alerts.forEach(alert => {
+      alert.acknowledged = true;
+    });
+    this.saveAlerts();
+    this.notifyListeners();
   }
 }
 
