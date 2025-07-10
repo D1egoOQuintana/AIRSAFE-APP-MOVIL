@@ -1,42 +1,52 @@
 {
   "expo": {
-    "name": "AirSafeApp",
-    "slug": "AirSafeApp",
+    "name": "AirSafe",
+    "slug": "AirSafeApp", 
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/air-safe.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/images/air-safe.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "icon": "./assets/images/air-safe.png"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/images/air-safe.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.AirSafeApp"
+      "package": "com.airsafe.app",
+      "icon": "./assets/images/air-safe.png"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./favicon.png",
+      "name": "AirSafe - Monitoreo de Calidad del Aire",
+      "shortName": "AirSafe",
+      "description": "Sistema de monitoreo de calidad del aire en tiempo real",
+      "themeColor": "#1ABC9C",
+      "backgroundColor": "#ffffff",
+      "bundler": "metro"
     },
     "updates": {
       "enabled": false,
       "checkAutomatically": "ON_ERROR_RECOVERY",
       "fallbackToCacheTimeout": 0,
-      "url": null
+      "url": "https://u.expo.dev/10001bae-c340-47ad-af1a-609214959e04"
     },
-    "runtimeVersion": {
-      "policy": "nativeVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "plugins": [
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "10001bae-c340-47ad-af1a-609214959e04"
+      }
+    }
   }
 }

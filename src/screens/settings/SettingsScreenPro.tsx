@@ -18,6 +18,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { appEventService } from '../../services/appEventService';
 
 const { width } = Dimensions.get('window');
 
@@ -90,6 +91,24 @@ export default function SettingsScreenPro() {
       [key]: !settings[key],
     };
     saveSettings(newSettings);
+  };
+
+  const confirmLockApp = () => {
+    Alert.alert(
+      'Bloquear Aplicación',
+      '¿Estás seguro de que quieres bloquear la aplicación? Necesitarás deslizar para desbloquear nuevamente.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Bloquear',
+          style: 'destructive',
+          onPress: () => appEventService.lockApp(),
+        },
+      ]
+    );
   };
 
   return (
@@ -205,6 +224,28 @@ export default function SettingsScreenPro() {
               value={settings.soundEnabled}
               onToggle={() => toggleSetting('soundEnabled')}
             />
+          </View>
+        </View>
+
+        {/* Sección de Seguridad */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Seguridad</Text>
+          
+          <View style={styles.securityCard}>
+            <TouchableOpacity style={styles.lockButton} onPress={confirmLockApp}>
+              <View style={styles.lockButtonContent}>
+                <View style={styles.lockIcon}>
+                  <Ionicons name="lock-closed" size={20} color="#DC2626" />
+                </View>
+                <View style={styles.lockTextContainer}>
+                  <Text style={styles.lockTitle}>Bloquear Aplicación</Text>
+                  <Text style={styles.lockDescription}>
+                    Bloquea la app y requiere deslizar para desbloquear
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -483,5 +524,44 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 40,
+  },
+  securityCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 20,
+    borderRadius: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  lockButton: {
+    padding: 16,
+  },
+  lockButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  lockIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  lockTextContainer: {
+    flex: 1,
+  },
+  lockTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 2,
+  },
+  lockDescription: {
+    fontSize: 13,
+    color: '#6B7280',
   },
 });

@@ -3,36 +3,44 @@
 // ✅ Configurado para broker público con soporte WebSocket
 
 export const MQTT_CONFIG = {
-  // Broker MQTT público con soporte WebSocket
+  // Broker EMQX público con soporte WebSocket
   brokerUrl: 'broker.emqx.io',
 
   // Puerto estándar MQTT (TCP) - para aplicaciones nativas
   port: 1883,
 
-  // Puerto WebSocket para aplicaciones web
-  webSocketPort: 8083,
+  // Puerto WebSocket para aplicaciones web - EMQX público soporta ambos
+  webSocketPort: 8083, // WebSocket estándar para EMQX
 
   // Sin credenciales para broker público
   username: null,
   password: null,
 
-  // Topics reales del sistema d1ego/airsafe
+  // Topics MQTT AIRSAFE D1EGO EPA - 100% REALES (exactamente como en firmware C++)
   topics: {
-    // Topic principal con todos los datos de sensores
-    sensors: 'd1ego/airsafe/sensors',
-    
-    // Topics específicos individuales
+    // Sensores individuales
     pm1: 'd1ego/airsafe/pm1',
     pm25: 'd1ego/airsafe/pm25', 
     pm10: 'd1ego/airsafe/pm10',
-    temperature: 'd1ego/airsafe/temperature',
     humidity: 'd1ego/airsafe/humidity',
+    
+    // Estado del sistema
     wifi_signal: 'd1ego/airsafe/wifi_signal',
     alert_level: 'd1ego/airsafe/alert_level',
     status: 'd1ego/airsafe/status',
+    health_level: 'd1ego/airsafe/health_level',
     action: 'd1ego/airsafe/action',
-    air_quality: 'd1ego/airsafe/air_quality',
     emergency: 'd1ego/airsafe/emergency',
+    
+    // Calidad del aire
+    air_quality: 'd1ego/airsafe/air_quality',
+    aqi_pm25: 'd1ego/airsafe/aqi_pm25',
+    aqi_pm10: 'd1ego/airsafe/aqi_pm10',
+    aqi_combined: 'd1ego/airsafe/aqi_combined',
+    
+    // Datos agrupados
+    all_data: 'd1ego/airsafe/all_data',
+    device_info: 'd1ego/airsafe/device_info',
 
     // Topic comodín para suscribirse a todos
     all: 'd1ego/airsafe/#'
@@ -42,7 +50,7 @@ export const MQTT_CONFIG = {
   options: {
     keepalive: 60,
     reschedulePings: true,
-    clientId: `airsafe_${Math.random().toString(16).substr(2, 8)}`,
+    clientId: 'mqtt-explorer-132be959',
     protocolId: 'MQTT',
     protocolVersion: 4,
     clean: true,
@@ -51,4 +59,5 @@ export const MQTT_CONFIG = {
   },
 };
 
-// ✅ Configurado para broker real test.mosquitto.org
+// ✅ Configurado para broker EMQX público (broker.emqx.io) - 100% REAL
+// ✅ Topics exactos del firmware AirSafe D1EGO EPA

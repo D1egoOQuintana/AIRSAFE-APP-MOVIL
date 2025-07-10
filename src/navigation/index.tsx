@@ -1,11 +1,12 @@
 // src/navigation/index.tsx
-// Sistema de navegación principal con Tab Navigator y Stack Navigator
+// Sistema de navegación principal con Tab Navigator y Stack Navigator + Persistencia
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TabParamList, RootStackParamList } from '../types';
 
 import DashboardScreenPro from '../screens/dashboard/DashboardScreenPro';
@@ -15,6 +16,8 @@ import SettingsScreenPro from '../screens/settings/SettingsScreenPro';
 
 const Tab = createBottomTabNavigator<TabParamList>();
 const Stack = createStackNavigator<RootStackParamList>();
+
+const PERSISTENCE_KEY = '@airsafe_navigation_state';
 
 function TabNavigator() {
   return (
@@ -73,8 +76,43 @@ function TabNavigator() {
 }
 
 export function RootNavigator() {
+  const [isReady, setIsReady] = useState(false);
+  const [initialState, setInitialState] = useState();
+
+  useEffect(() => {
+    const restoreState = async () => {
+      try {
+        const savedStateString = await AsyncStorage.getItem(PERSISTENCE_KEY);
+        const state = savedStateString ? JSON.parse(savedStateString) : undefined;
+
+        if (state !== undefined) {
+          setInitialState(state);
+        }
+      } catch (e) {
+        console.warn('Error restoring navigation state:', e);
+      } finally {
+        setIsReady(true);
+      }
+    };
+
+    if (!isReady) {
+      restoreState();
+    }
+  }, [isReady]);
+
+  const onStateChange = (state: any) => {
+    AsyncStorage.setItem(PERSISTENCE_KEY, JSON.stringify(state));
+  };
+
+  if (!isReady) {
+    return null; // Puedes mostrar un splash screen aquí
+  }
+
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      initialState={initialState}
+      onStateChange={onStateChange}
+    >
       <Stack.Navigator
         screenOptions={{
           headerShown: false,

@@ -153,9 +153,9 @@ class AlertService {
     this.alerts.unshift(alert);
     this.lastAlertTime[alertKey] = now;
 
-    // Mantener solo las últimas 50 alertas
-    if (this.alerts.length > 50) {
-      this.alerts = this.alerts.slice(0, 50);
+    // Mantener solo las últimas 10 alertas (como el historial)
+    if (this.alerts.length > 10) {
+      this.alerts = this.alerts.slice(0, 10);
     }
 
     this.saveAlerts();
@@ -191,11 +191,19 @@ class AlertService {
 
   // Marcar alerta como leída
   acknowledgeAlert(alertId) {
+    console.log('AlertService: Marcando alerta como leída, ID:', alertId);
+    console.log('AlertService: Total alertas:', this.alerts.length);
+    
     const alert = this.alerts.find(a => a.id === alertId);
     if (alert) {
+      console.log('AlertService: Alerta encontrada:', alert.title);
       alert.acknowledged = true;
       this.saveAlerts();
       this.notifyListeners();
+      console.log('AlertService: Alerta marcada como leída exitosamente');
+    } else {
+      console.log('AlertService: Alerta NO encontrada con ID:', alertId);
+      console.log('AlertService: IDs disponibles:', this.alerts.map(a => a.id));
     }
   }
 
@@ -259,21 +267,19 @@ class AlertService {
     this.saveAlerts();
   }
 
-  // Limpiar todas las alertas
-  clearAllAlerts() {
-    this.alerts = [];
+
+
+  // Eliminar una alerta individual
+  deleteAlert(alertId) {
+    console.log('AlertService: Eliminando alerta ID:', alertId);
+    const beforeCount = this.alerts.length;
+    this.alerts = this.alerts.filter(alert => alert.id !== alertId);
+    console.log('AlertService: Alertas antes:', beforeCount, 'después:', this.alerts.length);
     this.saveAlerts();
     this.notifyListeners();
   }
 
-  // Marcar todas las alertas como leídas
-  markAllAsRead() {
-    this.alerts.forEach(alert => {
-      alert.acknowledged = true;
-    });
-    this.saveAlerts();
-    this.notifyListeners();
-  }
+
 }
 
 export default new AlertService();

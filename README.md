@@ -95,7 +95,7 @@ src/
 │   └── index.ts        # Configuración del store
 ├── types/              # Definiciones TypeScript
 ├── utils/              # Utilidades
-│   └── dataSimulator.ts # Simulador de datos
+│   └── airQuality.js    # Utilidades de calidad del aire
 ```
 
 ## 🎨 Sistema de Diseño

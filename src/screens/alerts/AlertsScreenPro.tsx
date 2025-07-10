@@ -1,7 +1,7 @@
 // src/screens/alerts/AlertsScreenPro.tsx
-// Pantalla de alertas y notificaciones completamente funcional
+// Pantalla de alertas simplificada - máximo 10 alertas
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import alertService from '../../services/alertService';
+import notificationService from '../../services/notificationService';
 
 interface AlertData {
   id: string;
@@ -37,6 +38,18 @@ export default function AlertsScreenPro() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filter, setFilter] = useState('all');
 
+  const loadAlerts = useCallback(() => {
+    console.log('AlertsScreen: Cargando alertas...');
+    const alertStats = alertService.getAlertStats();
+    const filteredAlerts = alertService.getAlerts(filter);
+    
+    console.log('AlertsScreen: Stats:', alertStats);
+    console.log('AlertsScreen: Filtered alerts:', filteredAlerts.length);
+    
+    setStats(alertStats);
+    setAlerts(filteredAlerts);
+  }, [filter]);
+
   useEffect(() => {
     loadAlerts();
     
@@ -50,15 +63,7 @@ export default function AlertsScreenPro() {
     return () => {
       alertService.removeListener(handleAlertsUpdate);
     };
-  }, [filter]);
-
-  const loadAlerts = () => {
-    const alertStats = alertService.getAlertStats();
-    const filteredAlerts = alertService.getAlerts(filter);
-    
-    setStats(alertStats);
-    setAlerts(filteredAlerts);
-  };
+  }, [loadAlerts]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -77,74 +82,41 @@ export default function AlertsScreenPro() {
   };
 
   const acknowledgeAlert = (alertId: string) => {
+    console.log('AlertsScreen: Marcando alerta como leída, ID:', alertId);
     alertService.acknowledgeAlert(alertId);
-    loadAlerts();
+    setTimeout(() => {
+      loadAlerts();
+    }, 100);
   };
 
-  const testAlert = () => {
+  const deleteAlert = (alertId: string) => {
+    console.log('AlertsScreen: Intentando eliminar alerta ID:', alertId);
     Alert.alert(
-      'Probar Alertas',
-      '¿Qué tipo de alerta quieres probar?',
-      [
-        { text: 'PM2.5 Alto', onPress: () => testSpecificAlert('PM2.5', 45) },
-        { text: 'AQI Crítico', onPress: () => testSpecificAlert('AQI', 120) },
-        { text: 'Calidad Mejorada', onPress: () => testImprovementAlert() },
-        { text: 'Cancelar', style: 'cancel' }
-      ]
-    );
-  };
-
-  const testSpecificAlert = (type: string, value: number) => {
-    if (type === 'PM2.5') {
-      alertService.processData({ pm25: value, pm10: 30, temperature: 22, humidity: 45 });
-    } else if (type === 'AQI') {
-      alertService.processData({ pm25: 80, pm10: 120, temperature: 22, humidity: 45 });
-    }
-  };
-
-  const testImprovementAlert = () => {
-    alertService.processData({ pm25: 15, pm10: 25, temperature: 22, humidity: 45 });
-  };
-
-  const markAllAsRead = () => {
-    Alert.alert(
-      'Marcar todas como leídas',
-      '¿Estás seguro de que quieres marcar todas las alertas como leídas?',
+      'Eliminar alerta',
+      '¿Estás seguro de que quieres eliminar esta alerta?',
       [
         {
           text: 'Cancelar',
           style: 'cancel'
         },
         {
-          text: 'Sí, marcar todas',
-          onPress: () => {
-            alertService.markAllAsRead();
-            loadAlerts();
-          }
-        }
-      ]
-    );
-  };
-
-  const clearAllAlerts = () => {
-    Alert.alert(
-      'Eliminar todas las alertas',
-      '¿Estás seguro de que quieres eliminar permanentemente todas las alertas? Esta acción no se puede deshacer.',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel'
-        },
-        {
-          text: 'Sí, eliminar todas',
+          text: 'Eliminar',
           style: 'destructive',
           onPress: () => {
-            alertService.clearAllAlerts();
-            loadAlerts();
+            console.log('AlertsScreen: Ejecutando deleteAlert para ID:', alertId);
+            alertService.deleteAlert(alertId);
+            setTimeout(() => {
+              loadAlerts();
+            }, 100);
           }
         }
       ]
     );
+  };
+
+  const testNotificationSound = () => {
+    console.log('AlertsScreen: Probando notificación con sonido...');
+    notificationService.testNotificationSound();
   };
 
   return (
@@ -161,12 +133,8 @@ export default function AlertsScreenPro() {
       >
         <Text style={styles.headerTitle}>Alertas y Notificaciones</Text>
         <Text style={styles.headerSubtitle}>
-          Gestiona tus alertas de calidad del aire
+          Últimas 10 alertas del sensor
         </Text>
-        <TouchableOpacity style={styles.testButton} onPress={testAlert}>
-          <Ionicons name="flask" size={16} color="#FFFFFF" />
-          <Text style={styles.testButtonText}>Probar</Text>
-        </TouchableOpacity>
       </LinearGradient>
 
       {/* Summary */}
@@ -256,6 +224,15 @@ export default function AlertsScreenPro() {
             value={alertSettings.soundAlerts}
             onToggle={() => toggleSetting('soundAlerts')}
           />
+          
+          {/* Botón temporal de prueba de sonido */}
+          <TouchableOpacity 
+            style={styles.testButton} 
+            onPress={testNotificationSound}
+          >
+            <Ionicons name="volume-high" size={20} color="#3498DB" />
+            <Text style={styles.testButtonText}>Probar Sonido de Notificación</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -263,23 +240,7 @@ export default function AlertsScreenPro() {
       <View style={styles.alertsContainer}>
         <View style={styles.alertsHeader}>
           <Text style={styles.sectionTitle}>Alertas Recientes</Text>
-          
-          {alerts.length > 0 && (
-            <View style={styles.alertsActions}>
-              <TouchableOpacity style={styles.actionButton} onPress={markAllAsRead}>
-                <Ionicons name="checkmark-done" size={16} color="#3498DB" />
-                <Text style={styles.actionButtonText}>Marcar todas</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.actionButton, styles.actionButtonDanger]} 
-                onPress={clearAllAlerts}
-              >
-                <Ionicons name="trash" size={16} color="#EF4444" />
-                <Text style={[styles.actionButtonText, styles.actionButtonTextDanger]}>Eliminar todas</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <Text style={styles.alertsSubtitle}>Máximo 10 alertas</Text>
         </View>
         
         {alerts.length > 0 ? (
@@ -288,6 +249,7 @@ export default function AlertsScreenPro() {
               key={alert.id} 
               alert={alert} 
               onAcknowledge={() => acknowledgeAlert(alert.id)}
+              onDelete={() => deleteAlert(alert.id)}
             />
           ))
         ) : (
@@ -335,7 +297,7 @@ function SettingItem({ title, description, icon, value, onToggle }: {
   );
 }
 
-function AlertCard({ alert, onAcknowledge }: { alert: AlertData; onAcknowledge: () => void }) {
+function AlertCard({ alert, onAcknowledge, onDelete }: { alert: AlertData; onAcknowledge: () => void; onDelete: () => void }) {
   const getAlertColor = (type: string) => {
     switch (type) {
       case 'danger': return '#E74C3C';
@@ -370,15 +332,20 @@ function AlertCard({ alert, onAcknowledge }: { alert: AlertData; onAcknowledge: 
           <Text style={styles.alertTitle}>{alert.title}</Text>
           <Text style={styles.alertTime}>{alert.time} • {alert.location}</Text>
         </View>
+        
+        
       </View>
       
       <Text style={styles.alertMessage}>{alert.message}</Text>
       
-      {!alert.acknowledged && (
-        <TouchableOpacity style={styles.acknowledgeButton} onPress={onAcknowledge}>
-          <Text style={styles.acknowledgeText}>Marcar como leída</Text>
-        </TouchableOpacity>
-      )}
+      <View style={styles.alertActions}>
+        {!alert.acknowledged && (
+          <TouchableOpacity style={styles.acknowledgeButton} onPress={onAcknowledge}>
+            <Ionicons name="checkmark" size={16} color="#3498DB" />
+            <Text style={styles.acknowledgeText}>Marcar como leída</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 }
@@ -403,23 +370,6 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 16,
     color: 'rgba(255, 255, 255, 0.9)',
-  },
-  testButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  testButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 4,
   },
   summaryContainer: {
     marginHorizontal: 20,
@@ -540,6 +490,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginTop: 10,
   },
+  alertsHeader: {
+    marginBottom: 15,
+  },
+  alertsSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
   noAlertsContainer: {
     alignItems: 'center',
     paddingVertical: 40,
@@ -618,51 +576,47 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   acknowledgeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-start',
     paddingHorizontal: 15,
     paddingVertical: 8,
     backgroundColor: '#EBF8FF',
     borderRadius: 20,
+    gap: 4,
   },
   acknowledgeText: {
     fontSize: 12,
     color: '#3498DB',
     fontWeight: '600',
   },
-  alertsHeader: {
+  deleteButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+  },
+  alertActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
-  },
-  alertsActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  actionButtonDanger: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
-  },
-  actionButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#3498DB',
-    marginLeft: 4,
-  },
-  actionButtonTextDanger: {
-    color: '#EF4444',
+    marginTop: 10,
   },
   bottomSpacing: {
     height: 40,
+  },
+  testButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+    backgroundColor: '#EBF8FF',
+    borderRadius: 12,
+    margin: 10,
+    gap: 8,
+  },
+  testButtonText: {
+    fontSize: 14,
+    color: '#3498DB',
+    fontWeight: '600',
   },
 });

@@ -1,30 +1,23 @@
 // src/services/MqttManager.js
-// Gestor de conexión MQTT para datos en tiempo real
+// Gestor de conexión MQTT para datos en tiempo real (Paho MQTT compatible web y móvil)
 
 import { Client, Message } from 'paho-mqtt';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { MQTT_CONFIG } from '../constants/mqtt';
 
-// EventEmitter compatible con web
+// EventEmitter compatible con web y móvil
 class EventEmitter {
   constructor() {
     this.events = {};
   }
-  
   on(event, callback) {
-    if (!this.events[event]) {
-      this.events[event] = [];
-    }
+    if (!this.events[event]) this.events[event] = [];
     this.events[event].push(callback);
   }
-  
   emit(event, ...args) {
-    if (this.events[event]) {
-      this.events[event].forEach(callback => callback(...args));
-    }
+    if (this.events[event]) this.events[event].forEach(cb => cb(...args));
   }
-  
   removeAllListeners() {
     this.events = {};
   }
@@ -38,68 +31,76 @@ class MqttManager extends EventEmitter {
     this.connectionAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.reconnectInterval = 5000;
-    this.alertService = null; // Referencia al servicio de alertas
+    this.alertService = null;
     this.topics = [
+      MQTT_CONFIG.topics.pm1,
       MQTT_CONFIG.topics.pm25,
       MQTT_CONFIG.topics.pm10,
-      MQTT_CONFIG.topics.temperature,
       MQTT_CONFIG.topics.humidity,
       MQTT_CONFIG.topics.wifi_signal,
       MQTT_CONFIG.topics.air_quality,
+      MQTT_CONFIG.topics.alert_level,
       MQTT_CONFIG.topics.status,
+      MQTT_CONFIG.topics.emergency,
+      MQTT_CONFIG.topics.health_level,
+      MQTT_CONFIG.topics.action,
+      MQTT_CONFIG.topics.aqi_pm25,
+      MQTT_CONFIG.topics.aqi_pm10,
+      MQTT_CONFIG.topics.aqi_combined,
+      MQTT_CONFIG.topics.all_data,
+      MQTT_CONFIG.topics.device_info,
       MQTT_CONFIG.topics.all
     ];
-    
     this.sensorData = {
+      pm1: null,
       pm25: null,
       pm10: null,
       temperature: null,
       humidity: null,
       wifi_signal: null,
       air_quality: null,
+      alert_level: null,
       status: null,
+      emergency: null,
+      health_level: null,
+      action: null,
+      aqi_pm25: null,
+      aqi_pm10: null,
+      aqi_combined: null,
       all_data: null,
+      device_info: null,
       lastUpdate: null
     };
   }
 
-  // Configuración del broker MQTT
   getBrokerConfig() {
-    // Para web necesitamos WebSocket, para nativo usamos TCP
-    const isWeb = Platform.OS === 'web';
-    
+    // Fuerza WebSocket en todos los entornos (web y móvil)
+    // Usa clientId único y keepalive alto
     return {
       hostname: MQTT_CONFIG.brokerUrl,
-      port: isWeb ? MQTT_CONFIG.webSocketPort : MQTT_CONFIG.port,
-      clientId: MQTT_CONFIG.options.clientId,
+      port: MQTT_CONFIG.webSocketPort, // Siempre WebSocket
+      clientId: 'airsafe-' + Math.random().toString(16).substr(2, 8),
       username: MQTT_CONFIG.username || '',
       password: MQTT_CONFIG.password || '',
       useSSL: false,
-      keepAliveInterval: MQTT_CONFIG.options.keepalive,
+      keepAliveInterval: 120, // keepalive alto
       cleanSession: MQTT_CONFIG.options.clean,
-      reconnectPeriod: MQTT_CONFIG.options.reconnectPeriod,
-      isWeb: isWeb
+      reconnectPeriod: 15000, // reconexión más lenta
+      isWeb: true // Siempre WebSocket
     };
   }
 
-  // Inicializar conexión MQTT
   async connect() {
     try {
       const config = this.getBrokerConfig();
-      
       console.log(`🔌 Conectando a MQTT (${config.isWeb ? 'WebSocket' : 'TCP'}):`, {
         host: config.hostname,
         port: config.port,
         clientId: config.clientId
       });
-      
-      this.client = new Client(config.hostname, config.port, config.clientId);
-      
-      // Configurar eventos
+      this.client = new Client(config.hostname, Number(config.port), config.clientId);
       this.client.onConnectionLost = this.onConnectionLost.bind(this);
       this.client.onMessageArrived = this.onMessageArrived.bind(this);
-      
-      // Opciones de conexión
       const connectOptions = {
         useSSL: config.useSSL,
         userName: config.username,
@@ -109,9 +110,7 @@ class MqttManager extends EventEmitter {
         onSuccess: this.onConnected.bind(this),
         onFailure: this.onConnectionFailed.bind(this)
       };
-
       this.client.connect(connectOptions);
-      
     } catch (error) {
       console.error('❌ Error al conectar MQTT:', error);
       this.emit('error', error);
@@ -119,7 +118,6 @@ class MqttManager extends EventEmitter {
     }
   }
 
-  // Conexión exitosa
   onConnected() {
     console.log('✅ Conectado al broker MQTT');
     this.isConnected = true;
@@ -128,7 +126,6 @@ class MqttManager extends EventEmitter {
     this.subscribeToTopics();
   }
 
-  // Error de conexión
   onConnectionFailed(error) {
     console.error('❌ Fallo en conexión MQTT:', error);
     this.isConnected = false;
@@ -136,16 +133,28 @@ class MqttManager extends EventEmitter {
     this.scheduleReconnect();
   }
 
-  // Conexión perdida
   onConnectionLost(responseObject) {
-    console.warn('⚠️ Conexión MQTT perdida:', responseObject.errorMessage);
+    // Manejo especial para evitar bucles rápidos de reconexión
+    if (responseObject?.errorMessage && responseObject.errorMessage.includes('Socket closed')) {
+      console.warn('⚠️ Conexión MQTT perdida por socket cerrado. Esperando antes de reconectar...');
+      setTimeout(() => {
+        this.scheduleReconnect();
+      }, 15000); // Espera 15s antes de intentar reconectar
+      this.isConnected = false;
+      this.emit('connectionLost', responseObject);
+      return;
+    }
+    console.warn('⚠️ Conexión MQTT perdida:', responseObject?.errorMessage || 'Sin mensaje');
     this.isConnected = false;
     this.emit('connectionLost', responseObject);
     this.scheduleReconnect();
   }
 
-  // Suscribirse a todos los topics
   subscribeToTopics() {
+    if (!this.client || !this.isConnected) {
+      console.warn('⚠️ Cliente no conectado, no se puede suscribir');
+      return;
+    }
     this.topics.forEach(topic => {
       try {
         this.client.subscribe(topic);
@@ -156,51 +165,53 @@ class MqttManager extends EventEmitter {
     });
   }
 
-  // Mensaje recibido
   onMessageArrived(message) {
     try {
       const topic = message.destinationName;
       const payload = message.payloadString;
-      
       console.log(`📨 Mensaje recibido - Topic: ${topic}, Payload: ${payload}`);
-      
-      // Procesar según el topic
       const topicKey = topic.split('/').pop();
-      
       if (topicKey === 'all_data') {
         try {
           const allData = JSON.parse(payload);
           this.sensorData = { ...this.sensorData, ...allData };
         } catch (e) {
-          console.error('❌ Error parsing JSON:', e);
+          console.error('❌ Error parsing all_data JSON:', e);
+          this.sensorData.all_data = payload;
+        }
+      } else if (topicKey === 'device_info') {
+        try {
+          const deviceInfo = JSON.parse(payload);
+          this.sensorData.device_info = deviceInfo;
+        } catch (e) {
+          this.sensorData.device_info = payload;
         }
       } else {
-        this.sensorData[topicKey] = payload;
+        if (this.sensorData.hasOwnProperty(topicKey)) {
+          let processedValue = payload;
+          if (!isNaN(payload) && payload !== '') {
+            processedValue = parseFloat(payload);
+          }
+          this.sensorData[topicKey] = processedValue;
+        } else {
+          this.sensorData[topicKey] = payload;
+        }
       }
-      
       this.sensorData.lastUpdate = new Date().toISOString();
-      
-      // Procesar alertas si el servicio está disponible
       if (this.alertService) {
         this.alertService.processData(this.sensorData);
       }
-      
-      // Emitir evento con datos actualizados
       this.emit('dataUpdate', {
         topic,
         payload,
         sensorData: this.sensorData
       });
-      
-      // Guardar en AsyncStorage para persistencia
       this.saveDataToStorage();
-      
     } catch (error) {
       console.error('❌ Error procesando mensaje:', error);
     }
   }
 
-  // Guardar datos en AsyncStorage
   async saveDataToStorage() {
     try {
       await AsyncStorage.setItem('@airsafe_data', JSON.stringify(this.sensorData));
@@ -209,7 +220,6 @@ class MqttManager extends EventEmitter {
     }
   }
 
-  // Cargar datos desde AsyncStorage
   async loadDataFromStorage() {
     try {
       const data = await AsyncStorage.getItem('@airsafe_data');
@@ -222,12 +232,10 @@ class MqttManager extends EventEmitter {
     }
   }
 
-  // Programar reconexión
   scheduleReconnect() {
     if (this.connectionAttempts < this.maxReconnectAttempts) {
       this.connectionAttempts++;
       console.log(`🔄 Programando reconexión (${this.connectionAttempts}/${this.maxReconnectAttempts})...`);
-      
       setTimeout(() => {
         this.connect();
       }, this.reconnectInterval);
@@ -237,7 +245,6 @@ class MqttManager extends EventEmitter {
     }
   }
 
-  // Reconectar manualmente
   reconnect() {
     console.log('🔄 Reconexión manual iniciada...');
     this.connectionAttempts = 0;
@@ -247,13 +254,11 @@ class MqttManager extends EventEmitter {
     }, 1000);
   }
 
-  // Establecer servicio de alertas
   setAlertService(alertService) {
     this.alertService = alertService;
     console.log('🔔 Servicio de alertas conectado al MQTT Manager');
   }
 
-  // Desconectar
   disconnect() {
     if (this.client && this.isConnected) {
       try {
@@ -267,21 +272,20 @@ class MqttManager extends EventEmitter {
     this.emit('disconnected');
   }
 
-  // Obtener datos actuales
   getCurrentData() {
     return this.sensorData;
   }
 
-  // Obtener estado de conexión
   getConnectionStatus() {
     return {
       isConnected: this.isConnected,
       connectionAttempts: this.connectionAttempts,
-      maxReconnectAttempts: this.maxReconnectAttempts
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      broker: MQTT_CONFIG.brokerUrl,
+      topics: this.topics.length
     };
   }
 
-  // Publicar mensaje (opcional)
   publish(topic, message) {
     if (this.client && this.isConnected) {
       try {
@@ -298,7 +302,5 @@ class MqttManager extends EventEmitter {
   }
 }
 
-// Singleton instance
 const mqttManager = new MqttManager();
-
 export default mqttManager;

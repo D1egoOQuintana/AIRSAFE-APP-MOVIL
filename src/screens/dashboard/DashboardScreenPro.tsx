@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
 import SensorCard from '../../components/SensorCard';
+import MqttDebugPanel from '../../components/MqttDebugPanel';
 import mqttManager from '../../services/MqttManager';
 import alertService from '../../services/alertService';
 import notificationService from '../../services/notificationService';
@@ -25,9 +26,7 @@ import {
   calculateOverallAirQuality,
   calculatePM25Quality,
   calculatePM10Quality,
-  getTemperatureColor,
   getHumidityColor,
-  getWifiSignalColor,
   getAirQualityRecommendations,
   formatSensorValue,
 } from '../../utils/airQuality';
@@ -36,13 +35,20 @@ const { width } = Dimensions.get('window');
 
 export default function DashboardScreenPro() {
   const [sensorData, setSensorData] = useState<any>({
+    pm1: null,
     pm25: null,
     pm10: null,
-    temperature: null,
     humidity: null,
     wifi_signal: null,
     air_quality: null,
+    alert_level: null,
     status: null,
+    emergency: null,
+    health_level: null,
+    action: null,
+    aqi_pm25: null,
+    aqi_pm10: null,
+    aqi_combined: null,
     lastUpdate: null,
   });
   
@@ -71,6 +77,7 @@ export default function DashboardScreenPro() {
   useEffect(() => {
     initializeMQTT();
     setupNotificationListeners();
+    initializeChartWithHistoricalData();
     
     return () => {
       cleanupMQTT();
@@ -177,11 +184,13 @@ export default function DashboardScreenPro() {
     }
     
     // Actualizar datos
-    previousDataRef.current = sensorData;
+    previousDataRef.current = newData;
     setSensorData(newData);
     
-    // Actualizar gráficos
-    updateChartData(newData);
+    // Actualizar gráficos solo si tenemos datos válidos
+    if (newData.pm25 !== null && newData.pm25 !== undefined) {
+      updateChartData(newData);
+    }
   };
 
   const handleDataLoaded = (data: any) => {
@@ -195,11 +204,33 @@ export default function DashboardScreenPro() {
   };
 
   const updateChartData = (newData = sensorData) => {
-    const now = new Date();
-    const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // Usar el timestamp real de los datos si existe, sino crear uno
+    let timestamp;
+    if (newData.timestamp) {
+      timestamp = new Date(newData.timestamp);
+    } else if (newData.lastUpdate) {
+      timestamp = new Date(newData.lastUpdate);
+    } else {
+      timestamp = new Date();
+    }
+    
+    const timeLabel = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
     setChartData(prev => {
       const maxDataPoints = 12; // Últimas 6 horas (cada 30 min)
+      
+      // Verificar si ya existe este timestamp para evitar duplicados
+      const lastTimestamp = prev.timestamps[prev.timestamps.length - 1];
+      if (lastTimestamp === timeLabel && prev.timestamps.length > 0) {
+        // Si es el mismo timestamp, actualizar el último punto en lugar de añadir uno nuevo
+        const updatedData = {
+          pm25: [...prev.pm25.slice(0, -1), parseFloat(newData.pm25 || '0') || 0],
+          pm10: [...prev.pm10.slice(0, -1), parseFloat(newData.pm10 || '0') || 0],
+          temperature: [...prev.temperature.slice(0, -1), parseFloat(newData.temperature || '0') || 0],
+          timestamps: prev.timestamps,
+        };
+        return updatedData;
+      }
       
       const newChartData = {
         pm25: [...prev.pm25, parseFloat(newData.pm25 || '0') || 0].slice(-maxDataPoints),
@@ -210,6 +241,38 @@ export default function DashboardScreenPro() {
       
       return newChartData;
     });
+  };
+
+  // Función para inicializar el chart con datos históricos
+  const initializeChartWithHistoricalData = () => {
+    const now = new Date();
+    const historicalData = [];
+    
+    // Generar 12 puntos de datos distribuidos en las últimas 6 horas
+    for (let i = 11; i >= 0; i--) {
+      const timestamp = new Date(now.getTime() - (i * 30 * 60 * 1000)); // Cada 30 minutos
+      const timeLabel = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      historicalData.push({
+        timestamp: timeLabel,
+        pm25: 0,
+        pm10: 0,
+        temperature: 0,
+      });
+    }
+    
+    setChartData({
+      pm25: historicalData.map(d => d.pm25),
+      pm10: historicalData.map(d => d.pm10),
+      temperature: historicalData.map(d => d.temperature),
+      timestamps: historicalData.map(d => d.timestamp),
+    });
+  };
+
+  // Función para resetear el chart
+  const resetChart = () => {
+    console.log('🔄 Reseteando chart...');
+    initializeChartWithHistoricalData();
   };
 
   const handleSensorCardPress = (sensorType: string) => {
@@ -375,32 +438,6 @@ export default function DashboardScreenPro() {
           lastUpdate={sensorData.lastUpdate}
           onPress={() => handleSensorCardPress('Humedad')}
         />
-        
-        <SensorCard
-          title="Señal WiFi"
-          value={sensorData.wifi_signal}
-          unit="dBm"
-          icon="📶"
-          color={getWifiSignalColor(sensorData.wifi_signal)}
-          bgColor={getWifiSignalColor(sensorData.wifi_signal) + '20'}
-          description="Intensidad de señal"
-          isConnected={connectionStatus.isConnected}
-          lastUpdate={sensorData.lastUpdate}
-          onPress={() => handleSensorCardPress('WiFi')}
-        />
-        
-        <SensorCard
-          title="Estado"
-          value={sensorData.status || 'Desconocido'}
-          unit=""
-          icon="⚡"
-          color={sensorData.status === 'online' ? '#22C55E' : '#EF4444'}
-          bgColor={sensorData.status === 'online' ? '#22C55E20' : '#EF444420'}
-          description="Estado del sensor"
-          isConnected={connectionStatus.isConnected}
-          lastUpdate={sensorData.lastUpdate}
-          onPress={() => handleSensorCardPress('Estado')}
-        />
       </View>
     );
   };
@@ -422,7 +459,7 @@ export default function DashboardScreenPro() {
         <Text style={styles.chartTitle}>Tendencia PM2.5 (últimas 6 horas)</Text>
         <LineChart
           data={{
-            labels: chartData.timestamps,
+            labels: chartData.timestamps.filter((_, index) => index % 2 === 0), // Mostrar solo cada segunda etiqueta
             datasets: [
               {
                 data: chartData.pm25,
@@ -537,39 +574,8 @@ export default function DashboardScreenPro() {
         {/* Connection Status */}
         {renderConnectionStatus()}
         
-        {/* Debug/Test Section - Solo para desarrollo */}
-        <View style={styles.debugContainer}>
-          <TouchableOpacity 
-            style={styles.testButton}
-            onPress={() => {
-              // Test notification
-              notificationService.sendCustomAlert(
-                '🧪 Prueba de Notificación',
-                'Esta es una notificación de prueba desde la app web',
-                { type: 'test' }
-              );
-            }}
-          >
-            <Ionicons name="flask" size={16} color="#FFFFFF" />
-            <Text style={styles.testButtonText}>Probar Notificación</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.testButton}
-            onPress={() => {
-              // Test MQTT publish
-              mqttManager.publish('d1ego/airsafe/test', JSON.stringify({
-                test: true,
-                timestamp: new Date().toISOString(),
-                message: 'Test desde app web'
-              }));
-              Alert.alert('✅ Test', 'Mensaje de prueba enviado a MQTT');
-            }}
-          >
-            <Ionicons name="send" size={16} color="#FFFFFF" />
-            <Text style={styles.testButtonText}>Test MQTT</Text>
-          </TouchableOpacity>
-        </View>
+        {/* MQTT Debug Panel */}
+        <MqttDebugPanel />
         
         {/* Main Air Quality Card */}
         {renderMainAirQualityCard()}
@@ -805,36 +811,6 @@ const styles = StyleSheet.create({
   lastUpdateText: {
     fontSize: 12,
     color: '#6B7280',
-    marginLeft: 4,
-  },
-  debugContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#F8FAFC',
-    marginHorizontal: 16,
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  testButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6366F1',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  testButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
     marginLeft: 4,
   },
   // EPA Scale Styles
